@@ -1,6 +1,6 @@
 //! The LangBrain — the common-language substrate read from the machine's own dictionary.
 //!
-//! LINTER.md, "Common language first": a rule written in natural English can only be understood
+//! native/architecture.dx, "Common language first": a rule written in natural English can only be understood
 //! by something that understands natural English, so BEFORE any documentation is read the
 //! substrate learns common language from the dictionary installed on this machine (macOS: the
 //! New Oxford American Dictionary body). Two things are learned, both pure data: the
@@ -30,14 +30,14 @@ pub struct English {
     /// Token seeds of every word the dictionary defines (its headwords, tokenized through the
     /// reader's one tokenizer). Frozen sorted array when loaded; see [`SeedSet`].
     pub defined: SeedSet,
-    /// Definitions as bindings (LINTER.md, "Common language first"): each SINGLE-WORD
+    /// Definitions as bindings (native/architecture.dx, "Common language first"): each SINGLE-WORD
     /// headword's seed → the content-word seeds of its own definition (first
     /// [`MAX_DEFINITION_WORDS`], self excluded), sorted by headword seed. This is the meaning
     /// network the side-count polarity layer diffuses leans through — a word grounding never
     /// met inherits polarity from the words that define it.
     #[serde(default)]
     pub definitions: Vec<(u64, Vec<u64>)>,
-    /// The language's DISCOVERED negation primitives (LINTER.md, "The cold floor"): token
+    /// The language's DISCOVERED negation primitives (native/architecture.dx, "The cold floor"): token
     /// seeds that appear in negative-morphology definitions ("invalid" = "not valid") far
     /// above their background definition rate. Sorted; discovered statistically at
     /// dictionary-read time — never enumerated, so any language's dictionary yields its own.
@@ -54,7 +54,7 @@ pub struct English {
 const MAX_DEFINITION_WORDS: usize = 12;
 
 /// How near the front of a sentence a bare negation OPERATOR must stand to COMMAND it
-/// (LINTER.md, "Entry gates"). Prohibitions are imperative and lead with their negation
+/// (native/architecture.dx, "Entry gates"). Prohibitions are imperative and lead with their negation
 /// ("Never use X", "Do not call Y"); a bare "not" buried mid-clause ("…it is not allowed to
 /// move fields…") describes a constraint and commands nothing. Two words admits the leading
 /// operator and the imperative verb it may follow ("Do not …").
@@ -88,7 +88,7 @@ impl English {
             .map(|i| self.definitions[i].1.as_slice())
     }
 
-    /// Whether `seed` is a NEGATION OPERATOR (LINTER.md, "The cold floor"): a discovered
+    /// Whether `seed` is a NEGATION OPERATOR (native/architecture.dx, "The cold floor"): a discovered
     /// negator, or a word whose definition is negation COMPOUNDED — it contains a negator
     /// AND another word that is itself negator-defined ("never" = "at NO time … NOT ever").
     /// One negator alone is not enough: litotes runs through dictionaries ("plain" = "NOT
@@ -116,7 +116,7 @@ impl English {
     /// is SHORTER than the clause it fronts ("In vex code, never use X" — a scoping adjunct, and
     /// the negation still leads its clause; the comparative cut is the relative-reading pattern,
     /// no hand constant): PASS 36's mixed-language page facts died silently without this reading
-    /// (LINTER.md, "Entry gates"). A negation used DESCRIPTIVELY rather than to command — buried
+    /// (native/architecture.dx, "Entry gates"). A negation used DESCRIPTIVELY rather than to command — buried
     /// mid-sentence ("…it is not allowed to move fields…"), a factual adverb ("this
     /// representation never includes a CR"), a corrective apposition whose lead outweighs it
     /// ("The value is a string, not a number"), or one with its subject still ahead of it
@@ -157,7 +157,7 @@ impl English {
     }
 }
 
-/// HLM1 wire form (LINTER.md, "Save"): the reader's frequency arrays and the headword set
+/// HLM1 wire form (native/architecture.dx, "Save"): the reader's frequency arrays and the headword set
 /// ride the RAW stream, so loading the ~470k-entry substrate is a header parse plus bulk
 /// copies — the frozen reader answers lookups by binary search, no map is ever built.
 impl Bin for English {
@@ -201,7 +201,7 @@ fn store_path() -> PathBuf {
 
 /// Load the machine's built brain: the `HLM1` store first, else a legacy JSON store — which is
 /// migrated to the container on sight (save `.bin`, delete `.json`) so the next load is a bulk
-/// copy (LINTER.md, "Save").
+/// copy (native/architecture.dx, "Save").
 fn load_store() -> Option<English> {
     if let Some(e) = std::fs::read(store_path())
         .ok()
@@ -231,7 +231,7 @@ fn save_store(english: &English) {
 
 /// The loaded common-language brain: the machine's built store first, else the committed
 /// bootstrap, else `None` (selection then degrades to the docs-corpus head judgment alone).
-/// Memoized for the process — the lint path never builds, only loads (LINTER.md: setup
+/// Memoized for the process — the lint path never builds, only loads (native/architecture.dx: setup
 /// acquires, lint replays).
 pub fn brain() -> Option<&'static English> {
     static BRAIN: std::sync::OnceLock<Option<English>> = std::sync::OnceLock::new();
@@ -361,7 +361,7 @@ pub fn dictionary_prose(max_chunks: Option<usize>) -> Option<String> {
 
 /// The dictionary's headword→definition bindings as raw words — the source the character
 /// substrate's meaning network ([`crate::lint_char::MeaningNetwork`]) binds each headword to
-/// (LINTER.md, "The dictionary meaning network"). EVERY headword the dictionary defines yields the
+/// (native/architecture.dx, "The dictionary meaning network"). EVERY headword the dictionary defines yields the
 /// leading content words of its definition — single words AND multi-word headwords (`give up`,
 /// `null pointer` are constructs too, joined into one space-separated key). The definition is the
 /// text before the entry's first " : " example separator; words are alphabetic, ≥2 characters, the
@@ -421,7 +421,7 @@ pub fn dictionary_definitions(
     (!out.is_empty()).then_some(out)
 }
 
-/// Read one Apple dictionary body into a brain ENTIRELY, witnessed (LINTER.md, "Common
+/// Read one Apple dictionary body into a brain ENTIRELY, witnessed (native/architecture.dx, "Common
 /// language first"): walk its zlib chunks, strip each entry's XML down to definition prose the
 /// reader learns from, and collect every `d:title` headword's tokens as the defined-word set.
 /// Returns the brain plus the chunk count for the setup report; `None` when the walk did NOT
@@ -436,7 +436,7 @@ fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<(English, u
     // of a foreign layout must not poison the brain with garbage tokens.
     let mut pos = 0x60usize;
     let mut chunks = 0usize;
-    // Negator discovery (LINTER.md, "The cold floor"): count every definition token's
+    // Negator discovery (native/architecture.dx, "The cold floor"): count every definition token's
     // appearances overall and inside NEGATIVE-MORPHOLOGY entries (headword = prefix + a word
     // of its own definition, "invalid" = "not valid"). The language's negation primitive is
     // whatever token rides those entries far above its background rate — discovered, never
@@ -552,7 +552,7 @@ fn read_dictionary(path: &std::path::Path, source_fp: u64) -> Option<(English, u
         }
         english.negators.sort_unstable();
     }
-    // The ENTIRETY witness (LINTER.md): the walk ended either at the file's end or at the
+    // The ENTIRETY witness (native/architecture.dx): the walk ended either at the file's end or at the
     // start of its zero padding — anything else means a chunk mid-file failed to decode and
     // the dictionary was only PARTIALLY read. A partial brain is refused: the committed
     // bootstrap (a complete brain) serves until the dictionary reads whole again.
@@ -662,7 +662,7 @@ mod tests {
         .expect("bootstrap parses")
     }
 
-    /// The learned-rule ENTRY GATE (LINTER.md, "Entry gates"): a sentence STATES a prohibition
+    /// The learned-rule ENTRY GATE (native/architecture.dx, "Entry gates"): a sentence STATES a prohibition
     /// only when a negation operator GOVERNS it. Neutral descriptive reference prose — the Rust
     /// Reference junk class, including negation used DESCRIPTIVELY ("never includes a CR", "does
     /// not allow orphans") — must refuse; an imperative prohibition must admit. Pinned through

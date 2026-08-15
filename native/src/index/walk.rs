@@ -1,4 +1,4 @@
-//! Gitignore-aware repository walk — one fused pass (LINTER.md, "The live path").
+//! Gitignore-aware repository walk — one fused pass (native/architecture.dx, "The live path").
 //!
 //! The walk IS the stat pass: each entry's `(mtime, len)` change witness comes from the
 //! same directory scan that discovers it, so callers never re-stat what the walk already
@@ -33,7 +33,7 @@ pub struct WalkedFile {
 }
 
 /// One entry from a single batched directory scan — the walk's raw material, shared with
-/// the whole-project replay's witness folds (LINTER.md, "An unchanged project replays the
+/// the whole-project replay's witness folds (native/architecture.dx, "An unchanged project replays the
 /// whole report").
 pub struct ScanEntry {
     pub name: String,
@@ -86,7 +86,7 @@ pub const SKIP_DIRS: &[&str] = &[
     ".idea",
 ];
 
-/// A RUNAWAY SAFETY VALVE, never a working limit (LINTER.md, "the caps are runaway safety valves
+/// A RUNAWAY SAFETY VALVE, never a working limit (native/architecture.dx, "the caps are runaway safety valves
 /// sized far above any real source, never working limits that silently truncate knowledge"). The
 /// linter is a streaming infinite-state machine: it lints arbitrarily large input with per-file
 /// memory (one parse tree, freed after the file) and imposes NO context/token window, so a genuinely
@@ -550,7 +550,7 @@ pub fn walk_repo(root: &Path) -> Vec<WalkedFile> {
 
 /// [`walk_repo`] plus every kept DIRECTORY the walk visited (the root included) — the
 /// kqueue tier's watch set needs the dirs so a file created in any of them posts an event
-/// (LINTER.md, "The kqueue tier").
+/// (native/architecture.dx, "The kqueue tier").
 pub fn walk_repo_full(root: &Path) -> (Vec<WalkedFile>, Vec<PathBuf>) {
     let (mut files, mut dirs) = walk_dir(root, root, root_chain(root));
     files.sort_by(|a, b| a.rel.cmp(&b.rel));

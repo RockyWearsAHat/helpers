@@ -1,0 +1,38 @@
+{
+ "uses-.connect": {
+  "fire": ".connect",
+  "line": 4
+ },
+ "uses-.slice_unchecked": {
+  "fire": ".slice_unchecked",
+  "line": 5
+ },
+ "uses-.trim_left": {
+  "fire": ".trim_left",
+  "line": 6
+ },
+ "uses-.trim_right": {
+  "fire": ".trim_right",
+  "line": 7
+ },
+ "uses-.trim_left_matches": {
+  "fire": ".trim_left_matches",
+  "line": 8
+ },
+ "uses-.trim_right_matches": {
+  "fire": ".trim_right_matches",
+  "line": 9
+ },
+ "uses-.abs_sub": {
+  "fire": ".abs_sub",
+  "line": 10
+ },
+ "uses-.wait_timeout_ms": {
+  "fire": ".wait_timeout_ms",
+  "line": 11
+ },
+ "uses-.compare_and_swap": {
+  "fire": ".compare_and_swap",
+  "line": 12
+ }
+}

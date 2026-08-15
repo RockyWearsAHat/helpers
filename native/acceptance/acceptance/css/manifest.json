@@ -1,0 +1,98 @@
+{
+ "uses--moz-float-edge": {
+  "fire": "-moz-float-edge",
+  "line": 2
+ },
+ "uses--moz-force-broken-image-icon": {
+  "fire": "-moz-force-broken-image-icon",
+  "line": 3
+ },
+ "uses--moz-user-focus": {
+  "fire": "-moz-user-focus",
+  "line": 4
+ },
+ "uses--moz-user-input": {
+  "fire": "-moz-user-input",
+  "line": 5
+ },
+ "uses-box-align": {
+  "fire": "box-align",
+  "line": 6
+ },
+ "uses-box-direction": {
+  "fire": "box-direction",
+  "line": 7
+ },
+ "uses-box-flex-group": {
+  "fire": "box-flex-group",
+  "line": 8
+ },
+ "uses-box-lines": {
+  "fire": "box-lines",
+  "line": 9
+ },
+ "uses-box-ordinal-group": {
+  "fire": "box-ordinal-group",
+  "line": 10
+ },
+ "uses-box-orient": {
+  "fire": "box-orient",
+  "line": 11
+ },
+ "uses-box-pack": {
+  "fire": "box-pack",
+  "line": 12
+ },
+ "uses-page-break-after": {
+  "fire": "page-break-after",
+  "line": 13
+ },
+ "uses-page-break-before": {
+  "fire": "page-break-before",
+  "line": 14
+ },
+ "uses-page-break-inside": {
+  "fire": "page-break-inside",
+  "line": 15
+ },
+ "uses-text-decoration-skip": {
+  "fire": "text-decoration-skip",
+  "line": 16
+ },
+ "uses-user-modify": {
+  "fire": "user-modify",
+  "line": 17
+ },
+ "uses-:-moz-broken": {
+  "fire": ":-moz-broken",
+  "line": 18
+ },
+ "uses-:host-context": {
+  "fire": ":host-context",
+  "line": 19
+ },
+ "uses-::-moz-focus-inner": {
+  "fire": "::-moz-focus-inner",
+  "line": 20
+ },
+ "uses-::-webkit-meter-bar": {
+  "fire": "::-webkit-meter-bar",
+  "line": 21
+ },
+ "uses--webkit-animation": {
+  "fire": "-webkit-animation",
+  "line": 22
+ },
+ "uses--webkit-transition": {
+  "fire": "-webkit-transition",
+  "line": 23
+ },
+ "uses-maction": {
+  "fire": "maction",
+  "line": 24
+ },
+ "uses-block-all-mixed-content": {
+  "fire": "block-all-mixed-content",
+  "line": 25
+ }
+}

@@ -6,7 +6,7 @@
 //! [`RuleSet`] build pipeline with its compile-time gates (self-fire, over-fire, reference-fire,
 //! dedup) and the firing engine.
 //!
-//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `native/architecture.dx` at the
 //! repo root — the single authoritative doc; update it BEFORE changing semantics here.
 
 use std::collections::{HashMap, HashSet};
@@ -109,7 +109,7 @@ pub(crate) fn containment_fires(text: &str, tokens: &[String]) -> bool {
 /// shown to an agent: strip control characters (ANSI escapes, zero-width and line-break
 /// injection that could forge report structure or hide text), collapse whitespace runs, and
 /// cap length. Not a proof of safety — a bound on the injection surface of text the machine
-/// did not author (LINTER.md, "the distribution channel"). Project law is exempt: it is the
+/// did not author (native/architecture.dx, "the distribution channel"). Project law is exempt: it is the
 /// user's own text.
 fn sanitize_advice(desc: &str) -> String {
     const MAX_ADVICE: usize = 400;
@@ -162,20 +162,20 @@ enum MatchKind {
         /// Firing universe: `false` matches the code surface (strings/comments blanked —
         /// ledger #12); `true` matches raw lines, because the rule's construct grounded only
         /// inside the project's comments/strings and that is the universe the law governs
-        /// (LINTER.md, evidence hierarchy). Project law, plus a learned DEMONSTRATED-SHAPE
+        /// (native/architecture.dx, evidence hierarchy). Project law, plus a learned DEMONSTRATED-SHAPE
         /// detector whose bad/good contrast lives only inside a string literal (PASS 36,
         /// [`select::demonstrated_shape`] — the abstain-trap's law governs the string's
         /// interior); every other learned rule is always code.
         #[serde(default)]
         raw: bool,
     },
-    /// A structural AST PROBE (LINTER.md, "Rules from understanding — the probe bridge"): the
+    /// A structural AST PROBE (native/architecture.dx, "Rules from understanding — the probe bridge"): the
     /// rule fires wherever a coded predicate recognises a defect SHAPE (dead code, an unwrap, a
     /// magic number …). Which probe — and thus which principle is enforced — was decided by
     /// READING the corpus prose and understanding it ([`crate::lint_probe::understand`]); the
     /// stored string is the probe's stable name.
     Probe(String),
-    /// The UNDERSTANDING→TRACE bridge (LINTER.md, "the understanding→trace bridge"): the corpus
+    /// The UNDERSTANDING→TRACE bridge (native/architecture.dx, "the understanding→trace bridge"): the corpus
     /// principle's prose was read by [`crate::lint_trace`] into a composition of GENERIC tracing
     /// primitives (a [`crate::lint_trace::Plan`]) — the rule IS the understanding, no per-principle
     /// detector. The plan fires by walking the parsed tree. This is the primary path for corpus
@@ -187,7 +187,7 @@ impl MatchKind {
     /// Lines in `code` where this rule fires. 1-based. The caller hands a token detector the
     /// file's CODE SURFACE ([`code_surface_file`] — string interiors and comments blanked)
     /// for code languages, and the raw text for prose files: a law grounds only against real
-    /// code, so its detector must fire in the same universe (LINTER.md ledger #12/#14). AST
+    /// code, so its detector must fire in the same universe (native/architecture.dx ledger #12/#14). AST
     /// patterns parse the raw source — a string node is never an identifier. A [`MatchKind::Probe`]
     /// needs `lang` to parse, so every caller threads it through.
     fn matches(&self, lang: &str, code: &str) -> Vec<usize> {
@@ -283,7 +283,7 @@ impl RuleSet {
     /// pass `Grounding::default()` when no docs have been read for the language yet.
     /// Each rule is `(id, severity, bad, good, description, source, construct)`. The final
     /// `construct` is `Some(c)` only for a GRADUATED construct-module rule that carries its own
-    /// proven plan (`LINTER.md`, "The modular rebuild"): it compiles DIRECTLY to
+    /// proven plan (`native/architecture.dx`, "The modular rebuild"): it compiles DIRECTLY to
     /// `uses_construct(c)` and fires that plan in the one walk, never re-derived from the example
     /// diff. `None` keeps the legacy example/token detector path — behavioral scope, no language
     /// named (a rule that HAS a plan fires its plan; one that has only bad/good keeps the old path).
@@ -310,7 +310,7 @@ impl RuleSet {
                 // "goto"; nim's `proc greet` names neither and dies).
                 || tokens.iter().any(|t| select::tokens_fire_text(desc, std::slice::from_ref(t)))
         };
-        // OVER-GENERAL SINGLE-TOKEN GUARD (LINTER.md, "Entry gates"; the junk-doc-rule FP class).
+        // OVER-GENERAL SINGLE-TOKEN GUARD (native/architecture.dx, "Entry gates"; the junk-doc-rule FP class).
         // A descriptive REFERENCE section that states no prohibition can still leak a firing
         // single-token detector on an ordinary language keyword or built-in type — a Rust
         // paths.html syntax section compiled `["usize"]` and fired on every `usize`, exactly as a
@@ -421,7 +421,7 @@ impl RuleSet {
         // (a semantic rule that tree-diffs to a ubiquitous construct); a graduated `uses_construct`
         // rule was already proven through the frozen self-generated loop over the docs' OWN corpus,
         // and its target is legacy-ubiquitous BY DESIGN (`var` is taught using `var`), so the corpus
-        // fire-rate must not veto it (`LINTER.md`, "The modular rebuild").
+        // fire-rate must not veto it (`native/architecture.dx`, "The modular rebuild").
         let mut plan_rule_ids: HashSet<String> = HashSet::new();
         // Ids whose detector was REWRITTEN to the author's dotted member typography (owner
         // ruling 2026-07-18, second): the rule's own bad example demonstrates the BARE shape a
@@ -541,7 +541,7 @@ impl RuleSet {
                 select::demonstrated_shape(lang, token, bad, good)
                     .map(|(tokens, raw)| MatchKind::Tokens { tokens, raw })
             };
-            // UNDERSTANDING first (LINTER.md, "Rules from understanding — the probe bridge"): a
+            // UNDERSTANDING first (native/architecture.dx, "Rules from understanding — the probe bridge"): a
             // machine-global CS-principles doc (`corpus/*.md`) that describes a defect class in
             // prose, with no in-language example, is bound to the STRUCTURAL PROBE whose concept
             // its prose means. This is where reading a principle turns into a check: no probe
@@ -560,17 +560,17 @@ impl RuleSet {
             // UNDERSTANDING→TRACE first (the rule IS the understanding): read the principle's prose
             // into a composition of generic primitives ([`crate::lint_trace`]). Only when the bridge
             // ABSTAINS does the committed per-principle probe fallback get a turn (run alongside
-            // until the live anti-cheat passes; LINTER.md).
+            // until the live anti-cheat passes; native/architecture.dx).
             // The understanding→trace bridge is the SOLE canon path — the brain always runs.
             // Its abstention is MEANINGFUL: the principle maps to no structural shape, so the rule
-            // DROPS. The `lint_probe` spelling-centroid fallback is retired (LINTER.md end-state):
+            // DROPS. The `lint_probe` spelling-centroid fallback is retired (native/architecture.dx end-state):
             // it bound principles by SHARED SPELLING, so canon prose the bridge correctly abstains
             // on ("Comments explain why not what", "Match the algorithm family…") spuriously
             // spell-matched the `duplicated_code` probe and fired on innocent repeated lines. The
             // bridge binds 10/10 of the probe-mechanism fixture through MEANING, so nothing is lost:
             // a canon principle enforces through understanding or drops — never a spelling match.
             // BOTH origins now read through the SAME understanding→trace bridge (the token-miner is
-            // retired for modules — LINTER.md, "The per-language training pipeline"). A corpus
+            // retired for modules — native/architecture.dx, "The per-language training pipeline"). A corpus
             // principle reads the language-AGNOSTIC canon (structural primitives only); a language-doc
             // rule reads the GENERAL scope, where a prohibition naming a construct shapes
             // `uses_construct` ("avoid the `with` statement" → uses_construct(with)) — understood from
@@ -602,7 +602,7 @@ impl RuleSet {
                 // left "Never use the goto statement" a non-firing trace on grammarless flowlang.)
                 None
             } else if !bad.trim().is_empty() && !good.trim().is_empty() {
-                // PROPOSE-VERIFY-LEARN (LINTER.md, "PROPOSE-VERIFY-LEARN is the language path"):
+                // PROPOSE-VERIFY-LEARN (native/architecture.dx, "PROPOSE-VERIFY-LEARN is the language path"):
                 // understanding PROPOSES candidate checks from the prose; the binding's OWN paired
                 // examples PROVE them (fire on `bad`, stay clean on `good`); only a PROVEN plan is
                 // learned and remembered ([`lint_trace::learn_verified`]). Verification — not the
@@ -735,7 +735,7 @@ impl RuleSet {
                 // artifact: control characters stripped (no ANSI escapes, no zero-width or
                 // line-break injection into the report) and length-capped. Project law is the
                 // user's own text and passes through untouched. Bounding, not proving safe —
-                // the residual is the agent's own hygiene (LINTER.md, distribution channel).
+                // the residual is the agent's own hygiene (native/architecture.dx, distribution channel).
                 description: if trusted.contains(id) { desc.clone() } else { sanitize_advice(desc) },
                 source: source.clone(),
                 kind,
@@ -925,7 +925,7 @@ impl RuleSet {
 
     /// Whether `id` compiled to a structural [`MatchKind::Probe`] — the caller skips building a
     /// concept fingerprint for it (a probe is precise and reports directly; a description-only
-    /// concept would only risk vetoing OTHER rules' true findings, LINTER.md "Hv concept gate").
+    /// concept would only risk vetoing OTHER rules' true findings, native/architecture.dx "Hv concept gate").
     pub fn is_probe(&self, id: &str) -> bool {
         self.rules
             .iter()
@@ -991,7 +991,7 @@ impl RuleSet {
             };
             self.fire_tokens(&batch.surface, &surface, &mut lines_per_rule);
         }
-        // Structural probes: each walks the tree itself (LINTER.md, "the probe bridge"). They
+        // Structural probes: each walks the tree itself (native/architecture.dx, "the probe bridge"). They
         // judge the AST directly, so they run over the raw source, not the blanked surface.
         for &i in &batch.probes {
             match &self.rules[i].kind {
@@ -1133,7 +1133,7 @@ impl RuleSet {
     }
 }
 
-// ── HLM1 binary codecs (LINTER.md, "Save") ────────────────────────────────────
+// ── HLM1 binary codecs (native/architecture.dx, "Save") ────────────────────────────────────
 //
 // Field order is wire order. The lazy firing index (`batch`) is derived, never serialized —
 // exactly the `#[serde(skip)]` contract, kept by construction here.

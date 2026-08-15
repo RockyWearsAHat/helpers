@@ -1,4 +1,4 @@
-//! The human-language I/O overlay (LINTER.md, "The human-language I/O overlay").
+//! The human-language I/O overlay (native/architecture.dx, "The human-language I/O overlay").
 //!
 //! Code languages are constant; the INPUT and OUTPUT human languages are malleable. The linter
 //! reasons in the language-agnostic CONCEPT graph ([`crate::lint_char::MeaningNetwork`], built by

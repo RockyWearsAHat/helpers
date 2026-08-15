@@ -1,6 +1,6 @@
 //! `lint` — the AI code reviewer.
 //!
-//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `native/architecture.dx` at the
 //! repo root — the single authoritative doc; update it BEFORE changing semantics here.
 //!
 //! Training: [`crate::lint_train::ensure_models`] compiles law from the project's rule files
@@ -55,7 +55,7 @@ pub struct LintConfig {
     #[serde(default)]
     pub languages: Option<Vec<String>>,
     /// The HUMAN language findings are rendered in (and, ahead, foreign docs are read in) — the I/O
-    /// overlay of LINTER.md, "The human-language I/O overlay". Default `"english"` (empty ⇒ same):
+    /// overlay of native/architecture.dx, "The human-language I/O overlay". Default `"english"` (empty ⇒ same):
     /// output is byte-for-byte unchanged. `"fr"`/`"french"` renders findings through the French
     /// concept lexicon. `HELPERS_LINT_LANG` overrides this for a one-off run. Data/config only — no
     /// translation lives in code.
@@ -155,7 +155,7 @@ fn restates_rule(line_tokens: &[String], desc: &str) -> bool {
     shared >= 3 && shared * 2 >= desc_words.len()
 }
 
-// ── The verdict replay cache (LINTER.md, "Warm runs replay per-file verdicts") ──────────────
+// ── The verdict replay cache (native/architecture.dx, "Warm runs replay per-file verdicts") ──────────────
 
 /// One file's cached verdict: the `(mtime, len)` state it was computed under, its content
 /// seed and line count (grounding-fingerprint and quarantine inputs — reusable without a
@@ -333,7 +333,7 @@ pub fn run(args: &Value) -> ToolResult {
     let data = data_root();
     let memo_key = format!("max={max}|langs={filter:?}");
 
-    // The kqueue tier (LINTER.md): when the kernel reports every watched input quiet since
+    // The kqueue tier (native/architecture.dx): when the kernel reports every watched input quiet since
     // the memo was committed, the stored body IS the answer — one kevent drain, no walk,
     // no stat, microseconds. Any doubt falls through to the stat tier below.
     if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
@@ -350,7 +350,7 @@ pub fn run(args: &Value) -> ToolResult {
     }
 
     // The INCREMENTAL tier: the kernel names what fired; lint exactly that over the
-    // daemon's cached state (LINTER.md, "The incremental tier").
+    // daemon's cached state (native/architecture.dx, "The incremental tier").
     if std::env::var_os("HELPERS_LINT_REFRESH").is_none() {
         if let Some(body) = incremental_run(&root, &data, max, &filter, &memo_key) {
             if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
@@ -371,7 +371,7 @@ pub fn run(args: &Value) -> ToolResult {
     if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
         eprintln!("[lint-walk] walk_repo {:.1}ms, {} files", t_walk.elapsed().as_secs_f64() * 1e3, files.len());
     }
-    // Whole-project replay (LINTER.md, "An unchanged project replays the whole report"):
+    // Whole-project replay (native/architecture.dx, "An unchanged project replays the whole report"):
     // the walk just verified every file's state by statting — kernel-synchronous, so an
     // edit made the instant before this call is already in the fold — and the auxiliary
     // fold covers every input outside the tree. Equal witness ⇒ the stored body IS this
@@ -584,7 +584,7 @@ pub fn run(args: &Value) -> ToolResult {
             save_verdicts(&root, &next);
         }
         // Feed the INCREMENTAL tier: with these caches, the next fired-set run touches
-        // only the change (LINTER.md, "The incremental tier").
+        // only the change (native/architecture.dx, "The incremental tier").
         let aux_now = crate::lint_replay::aux_witness(&root, &data);
         daemon_state().lock().unwrap_or_else(|e| e.into_inner()).insert(
             root.clone(),
@@ -768,7 +768,7 @@ fn condense_advice(advice: &str) -> String {
 }
 
 /// Translate human-readable finding/verdict text into the selected I/O language, when one is set —
-/// a word-level concept gloss through the bilingual overlay (LINTER.md, "The human-language I/O
+/// a word-level concept gloss through the bilingual overlay (native/architecture.dx, "The human-language I/O
 /// overlay"). `None` (English default) returns the text unchanged, so English output is identical.
 fn tr(lex: Option<&crate::lint_lang::Lexicon>, text: &str) -> String {
     match lex {
@@ -874,7 +874,7 @@ fn render(
     if !sources.is_empty() {
         s.push_str(&format!("\nTrained from: {}.\n", sources.join(", ")));
     }
-    // Cite the I/O overlay whenever findings are rendered in a non-English language (LINTER.md,
+    // Cite the I/O overlay whenever findings are rendered in a non-English language (native/architecture.dx,
     // "The human-language I/O overlay"): the reader sees WHICH lexicon translated the output, and
     // that untranslated words are an honest gap in that bilingual dictionary, not a bug.
     if let Some(l) = lex {
@@ -889,7 +889,7 @@ fn render(
 
 
 
-/// The armed daemon's cached inputs for the INCREMENTAL tier (LINTER.md, "The incremental
+/// The armed daemon's cached inputs for the INCREMENTAL tier (native/architecture.dx, "The incremental
 /// tier"): everything a fired-set run needs without a walk, a container decode, or a
 /// model load. Repopulated by every full run; invalidated by falling back (aux events).
 struct DaemonState {
@@ -922,7 +922,7 @@ struct DaemonState {
     law_watch_block: String,
 }
 
-/// The EAGER PUMP (LINTER.md, "The incremental tier"): parse during the trace. One thread
+/// The EAGER PUMP (native/architecture.dx, "The incremental tier"): parse during the trace. One thread
 /// per root blocks on the kernel event stream; the moment an edit lands it runs the
 /// incremental pipeline in the background — so the work happens in the dead time between
 /// the edit and the next lint request, and that request lands on the committed memo in
@@ -1005,7 +1005,7 @@ fn select_by_language(
     by_language
 }
 
-/// The shared FIRE → SHAPE → RENDER core (LINTER.md, "The live path"): per-file replay or
+/// The shared FIRE → SHAPE → RENDER core (native/architecture.dx, "The live path"): per-file replay or
 /// re-lint through the given models, restatement guard, Hv gate, quarantine, config
 /// suppression, and the rendered body. Both the full pipeline and the incremental tier
 /// call this — the incremental tier with cached inputs, so its cost is the CHANGE plus
@@ -1091,7 +1091,7 @@ fn fire_shape_render(
         staged: Vec<(String, Hit, bool)>, // (path, hit, unverified doc rule?)
         law_watch: Vec<(String, String)>,
         trace: String,
-        /// Fresh files' new verdict-cache entries (LINTER.md, "Warm runs replay per-file verdicts").
+        /// Fresh files' new verdict-cache entries (native/architecture.dx, "Warm runs replay per-file verdicts").
         updates: Vec<(String, CachedVerdict)>,
     }
     let passes: Vec<LangPass> = {
@@ -1361,7 +1361,7 @@ fn fire_shape_render(
     (body, fresh_updates, quarantined, law_watch_block)
 }
 
-/// Arm the kqueue tier and commit `body` under the soundness protocol (LINTER.md, "The
+/// Arm the kqueue tier and commit `body` under the soundness protocol (native/architecture.dx, "The
 /// kqueue tier"): racy-window gate, ARM first, RE-SWEEP and require the walk fold
 /// unchanged (an edit racing the arming lands in the fold difference or as a pending
 /// event), require a quiet drain, then commit. Runs after every answer — full runs AND
@@ -1408,7 +1408,7 @@ fn kq_arm_and_commit(
 }
 
 
-/// The INCREMENTAL tier (LINTER.md, "The incremental tier"): a fired-set run over the
+/// The INCREMENTAL tier (native/architecture.dx, "The incremental tier"): a fired-set run over the
 /// daemon's cached state — the lint IS the change. Only content edits to already-known
 /// files ride this path in v1; anything structural (new files/dirs, gitignore edits, any
 /// aux/law/config event, a cold cache) returns `None` and the stat tier's full run — which
@@ -1521,7 +1521,7 @@ fn incremental_run(
         return Some(body);
     }
     // Single-file passes for exactly the CHANGED files; everything else renders straight
-    // from the verdict cache — the verdicts ARE the staged findings (LINTER.md, "The
+    // from the verdict cache — the verdicts ARE the staged findings (native/architecture.dx, "The
     // incremental tier").
     let n_changed = changed_idx.len();
     let mut dirty = false;
@@ -1744,7 +1744,7 @@ fn render_from_state(
 /// lint-index directories (the project data one and the machine one where `add_source`
 /// writes), and the model dir's top level. Derived caches (`lint-verdicts/`,
 /// `lint-replay/`) are excluded exactly as they are from the stat witness, so a run never
-/// invalidates its own memo (LINTER.md, "The kqueue tier").
+/// invalidates its own memo (native/architecture.dx, "The kqueue tier").
 fn kq_watch_set(
     root: &Path,
     data: &Path,
@@ -1838,7 +1838,7 @@ fn data_root() -> PathBuf {
     out
 }
 
-/// Build the human-language I/O overlay for a run, or `None` for the English default (LINTER.md,
+/// Build the human-language I/O overlay for a run, or `None` for the English default (native/architecture.dx,
 /// "The human-language I/O overlay"). Reads `HELPERS_LINT_LANG` then the project's `io_language`;
 /// loads the bilingual lexicon from the machine cache or the crate asset. `None` ⇒ output is
 /// byte-for-byte English, and no lexicon file is even read.

@@ -25,6 +25,10 @@ native/target/
 # Generated build-out plan from `helpers setup` (regenerable; not source).
 **/.helpers/SETUP.md
 *.dxbundle
+# dx's local full-text search cache (SQLite) — derived from .doc/repo.dxcp on demand
+# by `dx search`; not source. repo.dxcp (the content-addressed pack the .dx pointer
+# files resolve against) IS committed — it's the only copy of the document text.
+.doc/index.db
 build/
 coverage/
 dist/

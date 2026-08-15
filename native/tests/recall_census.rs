@@ -1,4 +1,4 @@
-//! PASS 36 — THE RECALL CENSUS, re-cut to the two-axis law (LINTER.md, "COMPLETION PASS 36",
+//! PASS 36 — THE RECALL CENSUS, re-cut to the two-axis law (native/history.dx, "COMPLETION PASS 36",
 //! owner ruling 2026-07-18): LEARNING and FIRING are separate axes, and only the second may ever
 //! decline.
 //!
@@ -27,7 +27,7 @@
 //! are redirected into the test's temp dir (`HELPERS_LINT_MODELS`, `HOME`), and the network is
 //! used only to read the test's own localhost docs during the one training step.
 //!
-//! PASS 37 — THE ATTRIBUTE DIMENSION (LINTER.md, "COMPLETION PASS 37", fixture-truth first): the
+//! PASS 37 — THE ATTRIBUTE DIMENSION (native/history.dx, "COMPLETION PASS 37", fixture-truth first): the
 //! census gains a third language — REAL html, trained from this site's own localhost pages alone
 //! (the hermetic env has no machine caches) — carrying the three documentation shapes the PASS-37
 //! audit proved the reader has never read: the per-attribute Deprecated badge inside an element

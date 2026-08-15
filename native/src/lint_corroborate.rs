@@ -1,6 +1,6 @@
 //! The English-equality corroboration judge — the referee the corroboration loop stands on.
 //!
-//! Contract: `LINTER.md` → north-star section → "The English-equality corroboration judge". Given two
+//! Contract: `native/history.dx` → north-star section → "The English-equality corroboration judge". Given two
 //! English statements (the expected outcome and the actual outcome, both derived back into English by
 //! the corroboration loop), decide whether they assert the **same / consistent** thing — same DIRECTION,
 //! same POLARITY. The decision reduces ENTIRELY to two frozen substrates: the dictionary meaning graph
@@ -162,7 +162,7 @@ pub enum RevocationClaim {
 /// Classify `statement`'s revocation claim: a status anchor as a bounded word × the statement's
 /// negation polarity. `negated` is passed in so a caller with a precomputed pool polarity
 /// (`lint_module`'s sentence pool) never re-runs the classifier. Truth table measured on the real
-/// corpus before shipping (LINTER.md PASS 30): (anchor, ¬neg) → Asserts, (anchor, neg) → Denies,
+/// corpus before shipping (native/history.dx PASS 30): (anchor, ¬neg) → Asserts, (anchor, neg) → Denies,
 /// no anchor → Neutral.
 pub fn revocation_claim(statement: &str, negated: bool, anchors: &[String]) -> RevocationClaim {
     let revokes = statement
@@ -234,7 +234,7 @@ pub fn more_consistent(m: &MeaningNetwork, en: &English, anchor: &str, x: &str, 
 /// The corroboration verdict: does `actual` corroborate `expected`, judged against a `contrast` foil?
 /// True iff `actual` orders STRICTLY nearer `expected` than the `contrast` baseline does — a margin against
 /// a foil, never a magic constant. The corroboration loop supplies the foil (the alternative / negated
-/// expectation it also derived). Per the measured boundaries (LINTER.md), the referee is sound for is-a
+/// expectation it also derived). Per the measured boundaries (native/architecture.dx), the referee is sound for is-a
 /// direction, co-hyponym rejection, and negation flips, but cannot see a synonym the dictionary never
 /// cross-references — so the loop must keep the foil genuine and treat an un-cross-referenced synonym as
 /// unproven. `None` when a consistency is undecidable.
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn revocation_claim_reads_the_measured_truth_table() {
-        // PASS 30 — the self-referee's atom, the exact table measured on the real corpus (LINTER.md):
+        // PASS 30 — the self-referee's atom, the exact table measured on the real corpus (native/history.dx):
         // (anchor, ¬neg) → Asserts; (anchor, neg) → Denies; no anchor → Neutral either polarity. The
         // remedy sentence is the load-bearing Neutral: it must never manufacture a contradiction.
         let anchors = vec!["deprecated".to_string(), "removed".to_string()];
@@ -377,7 +377,7 @@ mod tests {
         // cross-reference in the frozen definitions, directed reference cannot see their equality —
         // `liquid`/`fluid` share no edge, so `"water is a fluid"` does NOT order below the false
         // `"water is a gas"` (which IS reachable). If the frozen graph ever cross-references them, this
-        // flips and the LINTER.md boundary should be revisited.
+        // flips and the native/architecture.dx boundary should be revisited.
         let Some((br, en)) = brains() else {
             eprintln!("skip: no frozen brains on disk");
             return;

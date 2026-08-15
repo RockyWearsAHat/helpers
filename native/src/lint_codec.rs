@@ -1,4 +1,4 @@
-//! The `HLM1` binary container every machine-cache lint artifact is stored in (LINTER.md,
+//! The `HLM1` binary container every machine-cache lint artifact is stored in (native/architecture.dx,
 //! "Save"). A trained model is mostly hypervectors — already uniform random bits — so the
 //! format stores them verbatim and compresses only what has entropy to give:
 //!
@@ -21,7 +21,7 @@ use crate::lint_ai::Hv;
 /// Container magic — "Helpers Lint Model", format family 1.
 pub const MAGIC: [u8; 4] = *b"HLM1";
 /// Bumped on any layout change; a reader never guesses across versions.
-/// 2: [`Polarity`](crate::lint_read::Polarity) carries side-count tallies (LINTER.md,
+/// 2: [`Polarity`](crate::lint_read::Polarity) carries side-count tallies (native/architecture.dx,
 /// "The side-count evidence layer"). 3: tallies grow the clean-EXPOSURE counter (bad /
 /// good-label / exposure). Older artifacts fail `open` cleanly and cold-reacquire,
 /// never misread.
@@ -35,21 +35,21 @@ pub mod kind {
     pub const LEARNED: u8 = 3;
     pub const ENGLISH: u8 = 4;
     pub const POLARITY: u8 = 5;
-    /// Per-project verdict replay cache (LINTER.md, "Warm runs replay per-file verdicts").
+    /// Per-project verdict replay cache (native/architecture.dx, "Warm runs replay per-file verdicts").
     pub const VERDICT: u8 = 6;
-    /// Per-project whole-report replay container (LINTER.md, "An unchanged project replays
+    /// Per-project whole-report replay container (native/architecture.dx, "An unchanged project replays
     /// the whole report").
     pub const REPLAY: u8 = 7;
     /// The machine-global extension map (learned claims folded from every saved module).
     pub const EXTMAP: u8 = 8;
     /// RETIRED — the deleted word-substrate MarkupBrain's container (page reading moved to the
-    /// char substrate, LINTER.md "The character-level substrate"). The NUMBER stays reserved so
+    /// char substrate, native/architecture.dx "The character-level substrate"). The NUMBER stays reserved so
     /// no future format reuses 9 and misreads a leftover `markup.global.bin`; nothing reads it.
     pub const _RETIRED_MARKUP: u8 = 9;
     /// The character-level brain ([`crate::lint_char`]): the cumulative predictive reader whose
     /// atom is a UTF-8 scalar (context→next-char memory), trained dictionary→html→css→js→docs.
     pub const CHARBRAIN: u8 = 11;
-    /// A documentation source's crawl page cache: RAW pages exactly as served (LINTER.md,
+    /// A documentation source's crawl page cache: RAW pages exactly as served (native/architecture.dx,
     /// "Pages are cached RAW") — url/body/freshness anchors, DATA-stream deflated.
     pub const CRAWL: u8 = 10;
     /// The per-language GRADUATED-rule ledger ([`crate::lint_train`]): the construct rules PROVEN in
@@ -412,7 +412,7 @@ impl<V: Bin> Bin for std::collections::BTreeMap<String, V> {
 /// is a bulk copy off the RAW stream, membership is a binary search) or a HOT hash set once
 /// something inserts. The lint path only ever asks membership, so a loaded set stays frozen
 /// for its whole life — this is what keeps the English brain's 78k headwords at
-/// microsecond-load (LINTER.md, "Save").
+/// microsecond-load (native/architecture.dx, "Save").
 #[derive(Clone, Default)]
 pub struct SeedSet {
     /// Sorted, deduplicated seeds (frozen representation; empty while `hot` is live).

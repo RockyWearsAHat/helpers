@@ -47,7 +47,7 @@ pub struct LearnedRule {
     /// The corrected form (may be empty).
     pub good: String,
     /// The code CONSTRUCT this rule's understanding forbids, when the rule carries its own proven
-    /// plan (a graduated construct-module rule — `LINTER.md`, "The modular rebuild"). `Some(c)` means
+    /// plan (a graduated construct-module rule — `native/architecture.dx`, "The modular rebuild"). `Some(c)` means
     /// the rule IS the understood prohibition `uses_construct(c)`, compiled and fired DIRECTLY by
     /// `run_plan` in the one AST walk — never re-derived from the bad/good example diff. `None` is a
     /// legacy example/token-miner rule that keeps the example-diff detector path. Optional and
@@ -143,7 +143,7 @@ fn clean_line(line: &str) -> String {
 /// source line stays a SENTENCE boundary ([`crate::lint_read::sentences`] breaks on `\n`): a canon
 /// section's terminal-less markdown bullet ("Missing documentation on public APIs — write it")
 /// surfaces as its OWN sentence for the understanding gate instead of welding into one blob with
-/// its neighbours (LINTER.md, "REAL-CANON coverage" — the description assembler fix).
+/// its neighbours (native/architecture.dx, "REAL-CANON coverage" — the description assembler fix).
 fn split_heading(paragraph: &str) -> (Option<String>, String) {
     let mut lines = paragraph.lines();
     let first = lines.next().unwrap_or("").trim();
@@ -168,7 +168,7 @@ struct Building {
     from_heading: bool,
     /// True while the rule's description is ONLY its heading's own words: a heading that never
     /// gains body prose or a code block is a document TITLE, not a law (`# Rust law for this
-    /// repo` once minted a trusted rule watching `rust` — LINTER.md ledger #14).
+    /// repo` once minted a trusted rule watching `rust` — native/architecture.dx ledger #14).
     heading_only: bool,
     blocks: Vec<(String, String)>,
 }

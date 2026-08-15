@@ -1,4 +1,4 @@
-//! `lint_labels` — PASS 39 phase one, item 1 (LINTER.md "PASS 39"): label export.
+//! `lint_labels` — PASS 39 phase one, item 1 (native/history.dx "PASS 39"): label export.
 //!
 //! Walks every cached documentation page this machine holds ([`crate::lint_docs::all_cached_pages`])
 //! and emits grounded `(url, byte-span, label)` triples from facts the FROZEN PASS 35-37 read arms
@@ -18,7 +18,7 @@
 //! the HLM1 sidecar `labels.html.bin` ([`crate::lint_codec::kind::LABELS`]) — the training data
 //! for the one-bit predictive reader ([`crate::lint_coder`]).
 //!
-//! SHADOW ONLY (THE NO-NEW-READER-CODE LAW, LINTER.md): nothing here mints a finding or touches
+//! SHADOW ONLY (THE NO-NEW-READER-CODE LAW, native/laws.dx): nothing here mints a finding or touches
 //! the live lint path.
 
 use crate::lint_codec::{Bin, Dec, Enc};
@@ -76,7 +76,7 @@ impl Bin for Label {
     }
 }
 
-/// Per-kind tallies from one export run — what the train ack reports (LINTER.md "PASS 39").
+/// Per-kind tallies from one export run — what the train ack reports (native/history.dx "PASS 39").
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct LabelCounts {
     pub pages: usize,
@@ -199,7 +199,7 @@ fn labels_path() -> std::path::PathBuf {
     crate::lint_train::model_dir_pub().join("labels.html.bin")
 }
 
-/// Persist `labels` as the HLM1 sidecar, stamped with the current train version (LINTER.md
+/// Persist `labels` as the HLM1 sidecar, stamped with the current train version (native/architecture.dx
 /// "PASS 39"). A logic change to the export bumps [`crate::lint_train::TRAIN_VERSION`] like
 /// every other artifact, invalidating stale labels honestly rather than silently.
 pub(crate) fn save_labels(labels: &[Label]) {

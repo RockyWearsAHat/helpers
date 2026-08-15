@@ -1,4 +1,4 @@
-//! Reading a documentation page as UNDERSTANDING (LINTER.md, "Reading a page is UNDERSTANDING") —
+//! Reading a documentation page as UNDERSTANDING (native/architecture.dx, "Reading a page is UNDERSTANDING") —
 //! the char-substrate unit former, the sole reader on the read path (it superseded and replaced
 //! the deleted word-substrate MarkupBrain).
 //!
@@ -141,7 +141,7 @@ fn scan(body: &str, reader: &CharReader) -> Scan {
 /// judging each whitespace-delimited word's English-ness against the meaning network. The shared
 /// word-shape former: BOTH the HTML tag scan ([`scan`]) and the markdown marker scan
 /// ([`scan_markdown`]) emit gaps through it, so a fenced code block and a `<pre>` block are read by
-/// the identical typography — this is the curriculum's transfer point (LINTER.md rung 1).
+/// the identical typography — this is the curriculum's transfer point (native/history.dx rung 1).
 fn text_gap(body: &str, start: usize, end: usize, reader: &CharReader, stack: Vec<(u32, u64)>) -> Gap {
     let mut gap = Gap {
         start,
@@ -189,7 +189,7 @@ fn text_gap(body: &str, start: usize, end: usize, reader: &CharReader, stack: Ve
     gap
 }
 
-// ── Markdown typography (the curriculum precursor to web reading, LINTER.md rung 1) ──
+// ── Markdown typography (the curriculum precursor to web reading, native/history.dx rung 1) ──
 
 /// The seed of the markdown FENCED-CODE marker — a run of ≥3 backticks or tildes, keyed by the
 /// marker's OWN typography INCLUDING its author-supplied INFO-STRING (rung 1): `` ```js ``,
@@ -423,7 +423,7 @@ fn stack_role(reader: &CharReader, stack: &[(u32, u64)]) -> Option<bool> {
 const SHRED_WORDS: u32 = 2;
 
 /// How much governing prose immediately above a code span counts, in characters — an interim
-/// window inherited from the word substrate (LINTER.md marks it for dissolution). The cap never
+/// window inherited from the word substrate (native/architecture.dx marks it for dissolution). The cap never
 /// eats the first word when nothing was cut (ledger #22).
 const GOVERNING_CTX: usize = 320;
 
@@ -470,7 +470,7 @@ fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
         .zip(&role)
         .map(|(g, r)| g.words <= SHRED_WORDS && !g.terminal && *r != Some(false))
         .collect();
-    // A section boundary is decided in two tiers (LINTER.md, "Reading a page is UNDERSTANDING"): a
+    // A section boundary is decided in two tiers (native/architecture.dx, "Reading a page is UNDERSTANDING"): a
     // LEARNED heading role IS the boundary — the web corpus already testified. Without a role,
     // title SHAPE decides (short, unpunctuated, symbol-free, at most the learned ceiling of
     // words), guarded by sentence flow so a gap belonging to an OPEN prose sentence is never a
@@ -710,7 +710,7 @@ impl SiteChrome {
 }
 
 /// DISCOVER each site's chrome by cross-page text-run invariance over a whole-site `pages` corpus
-/// (LINTER.md, "Cross-page invariance = chrome, discarded"). Groups pages by host, counts on how
+/// (native/laws.dx, "Cross-page invariance = chrome, discarded"). Groups pages by host, counts on how
 /// many DISTINCT pages of that host each text-run key appears (deduped within a page), and keeps the
 /// keys recurring on ≥ [`CHROME_PAGE_SUPPORT`] pages. No element name and no site name is consulted:
 /// the discriminator is purely how often a run's exact content recurs across the same site. Pure
@@ -768,7 +768,7 @@ pub fn site_chrome(pages: &[(String, String)]) -> SiteChrome {
 /// trusted — a rarely-seen tag cannot testify (a support floor, not a classification threshold).
 const TAG_ROLE_SUPPORT: u32 = 8;
 
-/// LEARN the register role of each markup element by EXPOSURE over the web curriculum (LINTER.md,
+/// LEARN the register role of each markup element by EXPOSURE over the web curriculum (native/architecture.dx,
 /// "Reading a page is UNDERSTANDING"): read every page's structure, judge each element instance's
 /// contained text against the meaning network `reader` just sealed, and tally — an element whose
 /// contained text reads decisively as code becomes a code carrier, a short title-shaped one a
@@ -777,7 +777,7 @@ const TAG_ROLE_SUPPORT: u32 = 8;
 pub fn learn_structure_roles(reader: &CharReader, bodies: &[&str], md_bodies: &[&str]) -> StructureRoles {
     // Read every page's structure once; the title-shape ceiling is learned from the corpus's own
     // short gaps so "heading-shaped" is the corpus's word-length, not a hand constant. The markdown
-    // curriculum (LINTER.md rung 1) is read through its OWN line typography ([`scan_markdown`]) and
+    // curriculum (native/history.dx rung 1) is read through its OWN line typography ([`scan_markdown`]) and
     // its marker instances tally into the SAME role space — a fence learns "code carrier", an ATX
     // heading learns "section heading", exactly as `<pre>`/`<h1>` do, so the roles transfer.
     let mut scans: Vec<Vec<Gap>> = bodies
@@ -1065,7 +1065,7 @@ mod tests {
         );
     }
 
-    /// RUNG 1 (LINTER.md, the curriculum precursor): a real markdown document segments into a
+    /// RUNG 1 (native/history.dx, the curriculum precursor): a real markdown document segments into a
     /// heading-governed code-fence unit. The fence marker carries the learned CODE role, the ATX
     /// heading marker the learned HEADING (boundary) role — the SAME role space HTML `<pre>`/`<h2>`
     /// use — so the same unit former reads markdown as it reads a web page. Markdown-marker roles are

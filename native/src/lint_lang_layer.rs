@@ -1,7 +1,7 @@
 //! `lint_lang_layer` — the LANGUAGE-DOC reading rung: clean, per-construct governing prose and the
 //! docs' own paired bad/good examples, read STRUCTURALLY from real reference/rule pages.
 //!
-//! Contract: `LINTER.md` → "The language-doc reading rung — structural per-construct governing prose".
+//! Contract: `native/history.dx` → "The language-doc reading rung — structural per-construct governing prose".
 //! The construct-module workflow ([`crate::lint_module`]) used to PROPOSE from `memory.bindings[].prose`,
 //! but on the real crawl those "sentences" are garbled (code fragments and site chrome the word-substrate
 //! binding step interleaves with prose). This module supplies the workflow's PROPOSE material instead, by
@@ -107,7 +107,7 @@ pub struct DocPage {
 
 /// The candidate construct SHAPES a deprecated REFERENCE page proposes for its subject, most-specific
 /// first — so the caller keeps the first that FIRES on the page's own example code under the language's
-/// grammar (the covenant-clean squeeze; LINTER.md → "QUALIFIED-MEMBER construct extraction"). The
+/// grammar (the covenant-clean squeeze; native/history.dx → "QUALIFIED-MEMBER construct extraction"). The
 /// subject is the URL's last path segment; whether it is a MEMBER is read from the URL's shape under the
 /// reference marker: a member sits under an OWNER segment (`…/Reference/Global_Objects/String/substr` —
 /// owner `String`, subject `substr`), a global/keyword sits directly under its category
@@ -736,7 +736,7 @@ pub(crate) fn page_example_corpus(body: &str, rendered_marker: bool) -> Vec<Stri
 /// (a) [`crate::lint_module::page_proves_in_lang`] passes ONE page and checks whether its subject fires on
 /// this code under `lang`'s grammar — the verification-decided partition; (b)
 /// [`crate::lint_module::graduated_rules`] passes the WHOLE-SITE corpus as the OFFLINE-ROBUSTNESS harvest
-/// (LINTER.md → "the recommended unlock") when this machine's read [`Memory`] is too sparse to reach the
+/// (native/history.dx → "the recommended unlock") when this machine's read [`Memory`] is too sparse to reach the
 /// rep floor — a block that does not contain a candidate's construct simply never fires for it. Never
 /// fetches; `lang` is unused (grammar judging happens in the caller).
 pub(crate) fn page_code_corpus(pages: &[(String, String)], _lang: &str, cap: usize) -> Vec<String> {

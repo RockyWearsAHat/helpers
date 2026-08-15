@@ -57,7 +57,7 @@ struct Predicate {
 /// A generic structural RELATION — yields ordered `(a, b)` node pairs standing in a relation, where
 /// `a` fills endpoint A and `b` fills endpoint B. `words` selects the relation from a concept;
 /// `endpoint_a`/`endpoint_b` are the two endpoints' meaning descriptors, so a role concept can be
-/// assigned to the endpoint it is nearest to (meaning-driven direction, LINTER.md "the bridge").
+/// assigned to the endpoint it is nearest to (meaning-driven direction, native/architecture.dx "the bridge").
 struct Relation {
     name: &'static str,
     words: &'static [&'static str],
@@ -318,7 +318,7 @@ impl<'a> Bridge<'a> {
     /// = "NOT known", "meaningless" = "having NO meaning") and excluded them as concepts. The cost
     /// is that a negation PREPOSITION whose dictionary definition never reaches a base negator
     /// ("without" = "in the absence of") is not caught — the honest inner-negation gap reported for
-    /// undocumented-public (see LINTER.md).
+    /// undocumented-public (see native/architecture.dx).
     fn is_negator(&self, word: &str) -> bool {
         self.english.is_negation(crate::lint_ai::token_seed(word))
     }
@@ -397,7 +397,7 @@ impl<'a> Bridge<'a> {
     /// PROPOSE the code constructs a description NAMES — one covenant-clean [`extract_construct`]
     /// per sentence, paired with the governing sentence it was read from. The module-training
     /// workflow ([`crate::lint_module`]) uses this to propose construct-rule candidates LIBERALLY
-    /// (verification, not the low-recall prohibition gate, is the filter — LINTER.md
+    /// (verification, not the low-recall prohibition gate, is the filter — native/architecture.dx
     /// "PROPOSE-VERIFY-LEARN is the language path"). Deduped by construct, keeping the earliest
     /// governing sentence. `(construct, governing sentence)` pairs; empty when the prose names none.
     pub fn constructs_named(&self, description: &str) -> Vec<(String, String)> {
@@ -421,7 +421,7 @@ impl<'a> Bridge<'a> {
     /// fallback keeps a canon sentence that merely MENTIONS a construct (`HashMap` in "prefer
     /// deterministic behaviour") from minting `uses_construct(<that noun>)`.
     ///
-    /// PROVING (PASS 43, LINTER.md). Prose alignment only PROPOSES; the reference code PROVES. The
+    /// PROVING (PASS 43, native/architecture.dx). Prose alignment only PROPOSES; the reference code PROVES. The
     /// language-doc path already learns a rule only when it fires on `bad` and stays clean on `good`
     /// ([`understand_verified`](Self::understand_verified)); the canon had no such proof and shaped
     /// detectors on alignment alone — how `12. DRY` minted an over-broad `duplicate_subtree` that
@@ -535,7 +535,7 @@ impl<'a> Bridge<'a> {
         // KNOWN LIMITATION: the gate is a positional-negation heuristic (a lead "never"/"not"), so it
         // misses MDN's dominant phrasings ("deprecated", "avoid", "should not") — recall is low. This
         // is why the LANGUAGE path no longer relies on it: it goes through PROPOSE-then-VERIFY
-        // ([`understand_verified`], LINTER.md "PROPOSE-VERIFY-LEARN"), where understanding proposes the
+        // ([`understand_verified`], native/architecture.dx "PROPOSE-VERIFY-LEARN"), where understanding proposes the
         // rule and reality proves it against the docs' own bad/good examples — verification, not this
         // gate, is the filter. The gate stays ONLY on this plain `understand`/`explain` path, which has
         // no examples to prove against, trading recall for precision.
@@ -934,7 +934,7 @@ impl<'a> Bridge<'a> {
         bad: &str,
         good: &str,
     ) -> Option<Plan> {
-        // NO prohibition gate on this path (Task-3 logic, LINTER.md "PROPOSE-VERIFY-LEARN"): a
+        // NO prohibition gate on this path (Task-3 logic, native/architecture.dx "PROPOSE-VERIFY-LEARN"): a
         // candidate a false reading would propose cannot PROVE itself against the docs' real
         // bad/good, so the positional-negation gate `understand` uses is redundant here — and it is
         // the low-recall wall that made the language path enforce almost nothing ("deprecated",
@@ -1164,7 +1164,7 @@ pub fn learn_verified(description: &str, lang: &str, bad: &str, good: &str) -> O
 /// EVERY understanding-class defect the canon enforces: undocumented public items, a swallowed error,
 /// dead code after a return, an `unwrap` on a fallible value, a magic number, single-letter names, a
 /// hardcoded secret, a shell injection, and an over-long (god) function. It is the `bad` half of the
-/// canon's fire-bad/clean-good proof ([`canon_plan_proven`], LINTER.md "PASS 43"): every canon plan
+/// canon's fire-bad/clean-good proof ([`canon_plan_proven`], native/architecture.dx "PASS 43"): every canon plan
 /// that legitimately enforces must FIRE here. It must stay COMPLETE — a defect missing here silently
 /// starves the principle that checks it. This is the machine's ground truth of what bad code looks
 /// like, shared verbatim with the end-to-end acceptance test (`tests/understanding_defects.rs`), not
@@ -1278,7 +1278,7 @@ pub fn red(text: &str) -> String {
 "#;
 
 /// A canon plan is PROVEN when it FIRES on the known-TERRIBLE reference and stays CLEAN on the
-/// known-EXCELLENT one — the language-agnostic canon's fire-bad/clean-good verification (LINTER.md
+/// known-EXCELLENT one — the language-agnostic canon's fire-bad/clean-good verification (native/architecture.dx
 /// "PASS 43"). The reference is Rust because the canon primitives are STRUCTURAL and
 /// language-agnostic: proving the shape is sound against real bad and real good code in one grammar
 /// is what earns it the right to fire live in any. A plan that never fires on genuine bad code, or
@@ -1853,7 +1853,7 @@ fn is_shell_injection(node: Node, src: &[u8], words: &[&str]) -> bool {
 /// the throwaway `_` pattern, or an `Err(..) => {}` / `() ` match arm whose error branch does
 /// nothing. The generic shape of a swallowed error — pure structure, no descriptor tokens (the
 /// descriptor `words` name the CONCEPT a principle aligns to select this predicate; the SHAPE it
-/// recognises is fixed). LINTER.md, "discarded_fallible": the generic primitive that lets
+/// recognises is fixed). native/architecture.dx, "discarded_fallible": the generic primitive that lets
 /// swallowed_error bind from the canon's real "Never Swallow Exceptions" prose via `unary`.
 fn is_discarded_fallible(node: Node, src: &[u8], _words: &[&str]) -> bool {
     match node.kind() {
@@ -2099,7 +2099,7 @@ mod tests {
         assert!(bridge.enforce(missing, "rust", good).is_empty(), "missing-phrasing clean on documented");
 
         // swallowed_error now ENFORCES through the generic `discarded_fallible` primitive
-        // (LINTER.md): "ignore"/"discard"/"swallow" align to it, so the prohibition shapes a
+        // (native/architecture.dx): "ignore"/"discard"/"swallow" align to it, so the prohibition shapes a
         // unary(discarded_fallible) rule that flags a `let _ = <fallible>` and stays clean on a
         // handled result.
         let swallowed = "Never ignore, discard, or swallow an error.";
