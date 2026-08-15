@@ -108,12 +108,32 @@ pub fn read_language(
     let mut facts: Vec<crate::lint_read::ReadFact> = Vec::new();
     let mut seen_facts: std::collections::HashSet<(String, String)> = Default::default();
     let lang_lc = lang.to_lowercase();
-    for src in sources {
+    // CROSS-PAGE-INVARIANCE CHROME STRIP (native/laws.dx, "Cross-page invariance = chrome,
+    // discarded"): the construct-module workflow already strips a site's recurring navigation/
+    // breadcrumb/footer furniture before it reads a page ([`lint_module::graduate`], over the
+    // WHOLE-HOST corpus); this legacy-miner read never did, so a chrome `id=` attribute (a
+    // repeated breadcrumb/menu div) could win `anchor_slug_before`'s nearest-id search over a
+    // page's own real anchor, welding an unrelated furniture slug onto real prose. Fetched here
+    // ONCE across every one of this language's OWN sources (not `site_corpus`'s on-disk cache,
+    // which is empty on the very crawl that first populates it — the chicken-and-egg a whole-
+    // site-corpus read would hit on a cold cache) so the recurrence floor sees every page this
+    // call itself just fetched, not a possibly-stale prior corpus. Mirrors an existing, already-
+    // proven mechanism — no new detector, no word list — and is a no-op wherever nothing recurs
+    // across [`crate::lint_graph::CHROME_PAGE_SUPPORT`] pages of the same host.
+    let fetched: Vec<(&DocsSource, Vec<CrawledPage>)> =
+        sources.iter().map(|src| (src, crawled_source(src, max_pages, cache_version))).collect();
+    let all_pages: Vec<(String, String)> = fetched
+        .iter()
+        .flat_map(|(_, pages)| pages.iter().map(|p| (p.url.clone(), p.body.clone())))
+        .collect();
+    let chrome = crate::lint_graph::site_chrome(&all_pages);
+    for (src, pages) in fetched {
         let mut src_units = Vec::new();
         let mut src_prose = Vec::new();
-        for page in crawled_source(src, max_pages, cache_version) {
+        for page in pages {
+            let body = chrome.strip(&page.url, &page.body);
             let (prose, units, page_withheld, page_blockless) =
-                read_crawled_page(&src.url, &page.url, &page.body, brain);
+                read_crawled_page(&src.url, &page.url, &body, brain);
             let hints: Vec<String> = units.iter().map(|(_, _, _, h)| h.clone()).collect();
             let page_lang = attribute_page(&page.url, &hints, &extra_langs);
             // A page that positively attributes to ANOTHER language keeps its read-gate rows
@@ -1403,6 +1423,25 @@ fn sanitize_anchor(raw: &str) -> String {
 fn anchor_slug_before(html: &str, pos: usize) -> Option<String> {
     let head = html.get(..pos)?;
     let at = head.rfind("id=\"")?;
+    // The id must belong to a HEADING tag (`<h1>`…`<h6>`) to count as a section anchor — every
+    // anchored shape this reader knows (the reference/rule page, the index-section furniture)
+    // authors its slug on the heading that opens the section. A site's recurring chrome (a
+    // breadcrumb/menu `<div id="…">`, invariant across every page — native/laws.dx, "Cross-page
+    // invariance = chrome, discarded") also carries an `id=` attribute but is never a heading;
+    // chrome's TEXT is stripped before this point, but the id ATTRIBUTE survives the strip (the
+    // strip only blanks content), so an unrestricted nearest-id search still finds it and welds
+    // an unrelated furniture slug onto the next real paragraph. Pure HTML typography — the
+    // element name, never a word list — so this narrows false anchors without excluding any
+    // heading-anchored shape the reader already handles.
+    let tag_start = head[..at].rfind('<')?;
+    let name: String =
+        head[tag_start + 1..].chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+    let is_heading = name.len() == 2
+        && name.as_bytes()[0].to_ascii_lowercase() == b'h'
+        && name.as_bytes()[1].is_ascii_digit();
+    if !is_heading {
+        return None;
+    }
     let raw = head[at + 4..].split('"').next()?;
     let s = sanitize_anchor(raw);
     (s.len() >= 2).then_some(s)
