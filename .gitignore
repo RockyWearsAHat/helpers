@@ -29,6 +29,8 @@ native/target/
 # by `dx search`; not source. repo.dxcp (the content-addressed pack the .dx pointer
 # files resolve against) IS committed — it's the only copy of the document text.
 .doc/index.db
+.doc/index.db-shm
+.doc/index.db-wal
 build/
 coverage/
 dist/
