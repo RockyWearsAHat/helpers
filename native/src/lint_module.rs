@@ -603,7 +603,7 @@ fn with_reference_read(
                 }
             }
         }
-        match reference_subjects(url, body) {
+        match reference_subjects(url, body, en) {
             ReferenceRead::Subject { construct, governing } => {
                 read.push(ReadConstruct {
                     construct: construct.clone(),
@@ -654,7 +654,7 @@ enum ReferenceRead {
 /// slug no example spells (`tag_video.asp`) never mints a junk node (it returns as
 /// [`ReferenceRead::Unspelled`], the PASS-36 named drop, instead of vanishing). Governing prose is the
 /// page's own sentence mentioning the subject, else its lead. Pure; no brain, no grammar, no network.
-fn reference_subjects(url: &str, body: &str) -> ReferenceRead {
+fn reference_subjects(url: &str, body: &str, en: &English) -> ReferenceRead {
     let shapes = crate::lint_lang_layer::member_page_shapes(url);
     let unspelled = || match shapes.iter().find(|c| c.len() >= 2) {
         Some(subject) => ReferenceRead::Unspelled { subject: subject.clone() },
@@ -672,10 +672,14 @@ fn reference_subjects(url: &str, body: &str) -> ReferenceRead {
         return unspelled();
     };
     let pool = crate::lint_lang_layer::governing_sentences(body);
+    // Negation-first tie-break (the same tuple `propose()`'s own selector uses, lint_module.rs
+    // ~1028-1030): an H1+lead fusion often out-lengths the real short "Never use X…" sentence, so
+    // length alone picks the wrong governing prose. Reusing `is_negated` (no new word list, no new
+    // detector) prefers a prohibiting sentence, then falls back to the longest as before.
     let governing = pool
         .iter()
         .filter(|s| mentions(s, &construct))
-        .max_by_key(|s| s.len())
+        .max_by_key(|s| (u32::from(crate::lint_corroborate::is_negated(en, s)), s.len()))
         .or_else(|| pool.first())
         .cloned()
         .unwrap_or_default();
@@ -808,6 +812,15 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
     } else {
         crate::lint_lang_layer::page_example_corpus(body, true)
     };
+    // GRAMMARLESS PARTITION ADMISSION: when `lang` has no registered tree-sitter grammar,
+    // `parses_cleanly`/`run_plan` below always return empty/false — not because the page failed
+    // to prove anything, but because there is no referee to ask. `lint_match/mod.rs`'s firing path
+    // ("No grammar — token matching only", ~655-687) already treats containment of the construct in
+    // the page's own worked example as sufficient proof for exactly these languages; the partition
+    // side must accept the same standard or a grammarless language can never even reach the rule
+    // it is already capable of firing. This changes nothing for a grammar'd `lang`: that branch is
+    // untouched below, byte-identical to before.
+    let grammarless = crate::lint_match::language(lang).is_none();
     let proves = page.constructs.iter().any(|c| {
         let plan = Plan::UsesConstruct { construct: c.clone() };
         // PRIMARY-EXAMPLE language gate. The subject's language is where its FIRST DEMONSTRATED usage —
@@ -823,7 +836,7 @@ fn page_proves_in_lang(lang: &str, url: &str, body: &str, bridge: &Bridge, en: &
         //       subject in HTML and out of CSS.
         // The frozen `run_plan` under `lang`'s grammar is the only referee; no language is named.
         own.iter().find(|blk| construct_in_text(blk, c)).is_some_and(|blk| {
-            crate::lint_trace::parses_cleanly(lang, blk) && !run_plan(&plan, lang, blk).is_empty()
+            grammarless || (crate::lint_trace::parses_cleanly(lang, blk) && !run_plan(&plan, lang, blk).is_empty())
         })
     });
     if proves {
@@ -2497,8 +2510,9 @@ mod tests {
         let body = "<html><body><h1>The video element</h1>\
              <p>The video element embeds a media player for video playback.</p>\
              <pre><code>video controls src=movie.mp4</code></pre></body></html>";
+        let en = English::default();
         let ReferenceRead::Subject { construct, governing } =
-            reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", body)
+            reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", body, &en)
         else {
             panic!("demonstrated subject mints");
         };
@@ -2506,12 +2520,12 @@ mod tests {
         assert!(governing.contains("video"), "governing prose is the page's own sentence: {governing}");
         // The same body under a slug URL its examples never spell: nothing minted — the drop is named.
         assert_eq!(
-            reference_subjects("https://docs.test/tags/tag_video.asp", body),
+            reference_subjects("https://docs.test/tags/tag_video.asp", body, &en),
             ReferenceRead::Unspelled { subject: "tag_video.asp".to_string() }
         );
         // No examples at all: nothing to confirm with, nothing minted — same named drop.
         assert_eq!(
-            reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", bare_body()),
+            reference_subjects("https://docs.test/Web/HTML/Reference/Elements/video", bare_body(), &en),
             ReferenceRead::Unspelled { subject: "video".to_string() }
         );
     }

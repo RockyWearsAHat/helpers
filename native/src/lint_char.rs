@@ -1515,7 +1515,16 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     for md in &markdown {
         fp ^= crate::lint_ai::token_seed(md).rotate_left(11);
     }
-    if english.is_none() && web.iter().all(|(_, p)| p.is_empty()) {
+    // Bail only when literally nothing is available to learn from: no dictionary, no reachable
+    // web curriculum, no markdown corpus, AND no committed structure-role bootstrap. The bootstrap
+    // (`structure_bootstrap()`) exists for exactly this offline case (its own doc comment: "a
+    // machine that could not [crawl the web] hydrates back" from it) — the old guard bailed before
+    // `ensure_structure()`/`save()` ever ran, so a machine with no dictionary and no network never
+    // persisted a `char.global.bin` even though the bootstrap alone is enough for the reader's
+    // structural-role register. `lint_docs::read_language` hard-gates on `brain()` returning
+    // `Some`, so a starved brain silently skips reading any doc page — no reachable localhost
+    // fixture was ever crawled, even though nothing about the fixture itself was unreadable.
+    if english.is_none() && web.iter().all(|(_, p)| p.is_empty()) && markdown.is_empty() && structure_bootstrap().is_none() {
         return None;
     }
     // Freshness reads the fingerprint sidecar and the file directly (not the memoized
