@@ -451,6 +451,17 @@ fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
     let n = scan.gaps.len();
     let role: Vec<Option<bool>> =
         scan.gaps.iter().map(|g| stack_role(reader, &g.stack)).collect();
+    // A reader with NO vocabulary at all (no dictionary, no learned usage — the offline
+    // bootstrap-only case) cannot judge ANY gap's meaning-majority: `prose_majority` divides by
+    // known words, so zero known words always reads as "not majority" and every ordinary English
+    // sentence the structural role didn't already decide (a `<p>` the bootstrap's sparse code/
+    // heading role set never covers) would misclassify as code. The word-count fallback is only
+    // trustworthy once the reader knows SOME vocabulary to judge against; with none, it abstains
+    // (falls through as prose) rather than guessing "code" from an empty ratio. A reader with any
+    // real dictionary or usage-learned meaning is unaffected — this only guards the fully
+    // knowledgeless case the guard-widened `ensure_brain` (native/architecture.dx, "the curriculum, in
+    // order") now persists a brain for.
+    let has_vocabulary = !reader.meanings().is_empty();
     // A gap is CODE when a code-carrier role says so, else when it is meaning-minority AND carries
     // a symbol or two-plus words (a lone symbol-free unbound word is a domain heading, not code).
     let codey: Vec<bool> = scan
@@ -459,7 +470,7 @@ fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
         .zip(&role)
         .map(|(g, r)| match r {
             Some(is_code) => *is_code,
-            None => !prose_majority(g) && (g.symbolic || g.words >= 2),
+            None => has_vocabulary && !prose_majority(g) && (g.symbolic || g.words >= 2),
         })
         .collect();
     // A shred fragment welds into an adjacent code run — a highlighter's one/two-word spans; a
