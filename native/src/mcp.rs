@@ -164,7 +164,7 @@ pub fn run() -> std::process::ExitCode {
 /// Extract a filesystem workspace root from an `initialize` message — a
 /// VS Code-style `rootUri`/`rootPath`, or the first MCP `roots` entry — and
 /// Warm the lint replay tiers for every workspace root the client announced, on detached
-/// threads, BEFORE the first request needs them (LINTER.md, "The kqueue tier"): everything
+/// threads, BEFORE the first request needs them (native/architecture.dx, "The kqueue tier"): everything
 /// is already on disk, so the daemon arms its watch sets and commits the memos itself —
 /// the first user lint lands on the microsecond path instead of paying the arm + sweep.
 /// Silent by design: a failure here costs nothing but the warmth.

@@ -3,7 +3,7 @@
 //! handling — the English text where words like "swallow", "catch", "ignore", "suppress",
 //! "exception", "error" and "result" are genuinely used and explained — so the character
 //! substrate can learn a word's MEANING from usage, not only from its one dictionary definition
-//! (LINTER.md, "Meaning is learned from usage, not only definition").
+//! (native/architecture.dx, "Meaning is learned from usage, not only definition").
 //!
 //! It is deliberately small and polite: a handful of Stack Overflow tag LISTING pages are read for
 //! their question links, a bounded set of those question pages is fetched in modest parallel waves,

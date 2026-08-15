@@ -1,7 +1,7 @@
 //! `lint_module` — the construct-module TRAINING WORKFLOW, deriving every input of the frozen
 //! self-generated test loop ([`crate::lint_selftest`]) from a language's OWN cached documentation.
 //!
-//! Contract: `LINTER.md` → "The construct-module training workflow". The self-generated test loop is
+//! Contract: `native/history.dx` → "The construct-module training workflow". The self-generated test loop is
 //! proven, but in its probes `understanding`/`advice`/`foil`/`samples`/`clean` are hand-written Rust
 //! literals — that proves the MECHANISM, not the workflow. This module is the workflow: a PURE function
 //! over a read [`Memory`] (plus the two frozen brains) that
@@ -91,7 +91,7 @@ pub struct Candidate {
 }
 
 /// The outcome of putting one candidate through the frozen loop — reported whether it graduated or
-/// not, so the workflow measures honestly (LINTER.md: record what does NOT work as prominently as what
+/// not, so the workflow measures honestly (native/architecture.dx: record what does NOT work as prominently as what
 /// does). A `rule` is `Some` only for a `Verdict::Proven` candidate.
 #[derive(Clone, Debug)]
 pub struct Outcome {
@@ -367,7 +367,7 @@ fn harvest_corpus(memory: &Memory) -> Vec<String> {
 
 /// SELF-GENERATE distinct violating samples for `construct` in `lang`, language-GENERAL and covenant-clean:
 /// no per-language template, no hand-written fixture — the construct is DATA from the page, the contexts are
-/// real corpus blocks, and the frozen `run_plan` is the ONLY referee of what fires (LINTER.md → Fix 2).
+/// real corpus blocks, and the frozen `run_plan` is the ONLY referee of what fires (native/history.dx → Fix 2).
 ///
 /// 1. **Carriers** = the shortest snippets that genuinely FIRE `uses_construct(construct)`. Seeds are the
 ///    page's own incorrect examples (real, language-shaped). When a page has none (a deprecated REFERENCE
@@ -474,7 +474,7 @@ fn replace_whole_token(haystack: &str, from: &str, to: &str) -> String {
 /// `RuleSet::build` dedups by id, so one silently shadowed the other and `==` never fired live. Byte
 /// preservation keeps every distinct construct a distinct rule (`==` → `uses-==`, `++` → `uses-++`,
 /// `document.write` → `uses-document.write`). The id is opaque — nothing parses it (the plan rides the
-/// rule's own `construct` field, LINTER.md "no id-parsing hack") — so any construct bytes are safe. The
+/// rule's own `construct` field, native/history.dx "no id-parsing hack") — so any construct bytes are safe. The
 /// construct is DATA read from the prose, so the id is too. Display names are rendering only.
 fn rule_id(construct: &str) -> String {
     format!("uses-{construct}")
@@ -894,7 +894,7 @@ fn propose(lang: &str, pages: &[&(String, String)], bridge: &Bridge, en: &Englis
         }
     }
 
-    // QUALIFIED-MEMBER SHAPE SELECTION (LINTER.md → "QUALIFIED-MEMBER construct extraction"). A
+    // QUALIFIED-MEMBER SHAPE SELECTION (native/history.dx → "QUALIFIED-MEMBER construct extraction"). A
     // deprecated reference page proposes several candidate SHAPES for its subject, most-specific first
     // (qualified `RegExp.input`, receiver-generic member `.substr`, bare `substr`). Keep the FIRST that
     // FIRES on the page's OWN example code under `lang`'s grammar — the covenant-clean squeeze: a
@@ -1101,7 +1101,7 @@ fn is_prohibited_subject(lang: &str, url: &str, construct: &str, incorrect: &[St
 }
 
 /// Whether the page's LEAD SUMMARY structurally STATES `construct` as its subject — the covenant-clean
-/// `??`-vs-`==` discriminator (LINTER.md → the stated-subject gate, owner ruling 2026-07-11). A genuine
+/// `??`-vs-`==` discriminator (native/history.dx → the stated-subject gate, owner ruling 2026-07-11). A genuine
 /// single-construct ban NAMES its subject in the title/lead sentence, one of two ways:
 /// - **directly** — the lead names the construct itself (`no-console` → "Disallow the use of `console`",
 ///   `no-eval`, `no-with`); or
@@ -1224,7 +1224,7 @@ fn blind_fires(plan: &Plan, lang: &str, code: &str) -> bool {
 /// FROZEN comparator and folded by the FROZEN counting law [`fold_reps`]. The three-argument English
 /// reconciliation [`crate::lint_corroborate::corroborates`]`(understanding, advice, foil)` is CONSTANT
 /// across the ≤ ([`PROVE_SAMPLE_CAP`]+clean) reps of a one-rule book, so it is computed ONCE and reused
-/// (the memoization LINTER.md's speed pass blessed — a pure comparator re-evaluated identically per rep).
+/// (the memoization native/architecture.dx's speed pass blessed — a pure comparator re-evaluated identically per rep).
 ///
 /// Per rep, expectation × blind outcome:
 /// - **Flag, fired** — the sides agree behaviorally; the English judge decides whether the found advice
@@ -1276,7 +1276,7 @@ fn prove_blind(
 ///
 /// The frozen loop's independence axis is DISTINCT harvested violating blocks; its English gate is the
 /// two-doc-sentence reconciliation over a sibling foil. A candidate graduates iff ≥ [`REQUIRED_REPS`]
-/// distinct real blocks fire AND the two doc sentences reconcile AND none contradicts (LINTER.md).
+/// distinct real blocks fire AND the two doc sentences reconcile AND none contradicts (native/architecture.dx).
 ///
 /// The final element is PASS 36's read-stage conservation rows — every named `(id, reason)`
 /// withhold this pass's readers refused (grammar abstention, member veto, orphan fall-through,
@@ -1336,7 +1336,7 @@ pub fn graduate(
     // proved over, excluding pages the existing faculty already attests. Empty (⇒ inert) for every corpus
     // that proves no construction, so every other language stays byte-identical.
     let construction = construction_attestation(&pages, &attested, constructions);
-    // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
+    // CROSS-PAGE-INVARIANCE CHROME FILTER (native/laws.dx → "Cross-page invariance = chrome, discarded";
     // owner north-star). A site's navigation, breadcrumb, footer, and sidebar-menu text recurs
     // IDENTICALLY across its pages and carries zero governing meaning, so it is discarded — site-
     // scoped, learned from the corpus by exact text-run recurrence, no element name and no site name
@@ -1479,7 +1479,7 @@ pub fn graduate(
         // TOP UP with SELF-GENERATED violations when the idiomatic corpus is too scarce to reach the rep
         // floor (every CSS/HTML deprecation, JS `with`): splice the construct into varied real corpus
         // contexts, seeded by the page's own incorrect examples, frozen `run_plan` the only referee
-        // (LINTER.md → the two walls → Fix 2). Harvested reps stay primary; generation only supplies count.
+        // (native/history.dx → the two walls → Fix 2). Harvested reps stay primary; generation only supplies count.
         // Skipped when the candidate has no derived advice — it cannot graduate anyway, so generating reps
         // for it is wasted `run_plan` sweeps (the training-time cut that keeps the workflow in seconds).
         if (advices[i].is_some() || cand.attested_deprecated) && violating.len() < REQUIRED_REPS {
@@ -1537,7 +1537,7 @@ pub fn graduate(
             }),
         };
 
-        // NOTECARD GRADUATION PATH (LINTER.md → the notecard-as-proof route, owner ruling 2026-07-11).
+        // NOTECARD GRADUATION PATH (native/history.dx → the notecard-as-proof route, owner ruling 2026-07-11).
         // When the origin page STRUCTURALLY ATTESTS its subject deprecated (a reference notecard) AND a
         // reference site publishes IDENTICAL deprecation boilerplate for every such construct, the English
         // self-test's foil is degenerate BY CONSTRUCTION — the frozen comparator honestly cannot apply
@@ -1969,7 +1969,7 @@ fn graded_forms(
     out
 }
 
-/// PASS 37 — THE ATTESTATION READ (LINTER.md, "COMPLETION PASS 37" implementation subsection):
+/// PASS 37 — THE ATTESTATION READ (native/history.dx, "COMPLETION PASS 37" implementation subsection):
 /// the three documentation shapes the attribute-dimension audit proved the reader had never read,
 /// each an attestation SOURCE the page itself publishes — the per-attribute Deprecated badge in an
 /// element page's definition list (law 1, construct `host@attr`), the index-section obsolete list,
@@ -2181,7 +2181,7 @@ fn pass37_attestations(
 }
 
 /// The result of a graduation pass: the PROVEN construct rules AND the exact corpus the pass read.
-/// `corpus_urls` is the re-check basis for contradiction-driven reshape (LINTER.md → Item 3c): the set
+/// `corpus_urls` is the re-check basis for contradiction-driven reshape (native/history.dx → Item 3c): the set
 /// of page URLs this pass proposed over, so the caller can tell a rule whose source page is STILL in the
 /// corpus (its absence from `rules` is a genuine failure to re-prove — a contradiction) from one whose
 /// page has LEFT the corpus (a subset crawl — retain the last proof, unrefreshed).
@@ -2246,7 +2246,7 @@ pub fn graduated_rules(lang: &str, memory: &Memory) -> GraduatedModule {
     // The re-check basis (Item 3c): every page URL this pass proposes over. Captured BEFORE the
     // corpus-enrichment fallback (which only pushes reference code blocks, never new pages).
     let corpus_urls: std::collections::HashSet<String> = pages.iter().map(|(u, _)| u.clone()).collect();
-    // OFFLINE-ROBUSTNESS FALLBACK (LINTER.md → "the recommended unlock"). The frozen loop's evidence is
+    // OFFLINE-ROBUSTNESS FALLBACK (native/history.dx → "the recommended unlock"). The frozen loop's evidence is
     // the harvested code corpus. On a machine whose read `Memory` is sparse — a legacy no-memory catalog,
     // or a source that could not refresh with bindings — that corpus is empty and NOTHING graduates even
     // though the crawl cache holds the very example code the harness graduates from. When the memory-borne
@@ -2681,7 +2681,7 @@ mod tests {
     /// [`Verdict`] as the frozen [`crate::lint_selftest::prove`] for the single-rule book `graduate`
     /// builds — across the firing (Corroborates/Mismatch/Undecidable) and non-firing (NotFlagged) rep
     /// classes. Guards that the flag half of the blind loop (and its once-computed comparator) never
-    /// changes a graduation decision (LINTER.md: bit-identical funnel); the clean reps are additive.
+    /// changes a graduation decision (native/architecture.dx: bit-identical funnel); the clean reps are additive.
     #[test]
     fn blind_prove_matches_frozen_prove() {
         use crate::lint_selftest::{prove, KnownRule};

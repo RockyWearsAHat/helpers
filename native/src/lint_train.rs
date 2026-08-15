@@ -3,7 +3,7 @@
 //! [`ConceptModel`] confirmation gate. One call to [`ensure_models`] does everything the lint
 //! tool needs.
 //!
-//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `native/architecture.dx` at the
 //! repo root — the single authoritative doc; update it BEFORE changing semantics here.
 //!
 //! Law comes from exactly two places; everything else is READING:
@@ -44,13 +44,13 @@ pub struct LangModel {
     /// Concept fingerprints for the same rules; the gate that confirms text-fallback findings.
     pub concept: ConceptModel,
     /// Identity of the merged engine — module provenance ⊕ overlay stamp, hashed. The verdict
-    /// replay cache keys per-file findings on it (LINTER.md, "Warm runs replay per-file
+    /// replay cache keys per-file findings on it (native/architecture.dx, "Warm runs replay per-file
     /// verdicts"): any retrain, law edit, or project change lands in one of the two stamps.
     pub id: u64,
 }
 
 /// Pages to crawl per source — a runaway safety valve (a mis-scoped seed must not eat a whole
-/// wiki), never a working limit: the WHOLE in-scope docs tree is crawled and read (LINTER.md,
+/// wiki), never a working limit: the WHOLE in-scope docs tree is crawled and read (native/architecture.dx,
 /// "Map"). The learned catalog is cached and registry-shared, so the cost is paid once per
 /// machine per toolchain version.
 #[cfg(feature = "crawl")]
@@ -64,7 +64,7 @@ pub(crate) const TRAIN_VERSION: &str = "docs-v110-canon-proves-against-reference
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
-/// from the legacy token-miner to the proven set (THE FLIP, LINTER.md). A language the workflow OWNS —
+/// from the legacy token-miner to the proven set (THE FLIP, native/history.dx). A language the workflow OWNS —
 /// one whose docs are per-construct rule pages / deprecation-notecard reference pages (the web stack) —
 /// proves a module's worth of rules (MEASURED: javascript 5, css 31, html 8); an incidental cross-reader
 /// (typescript 1) or a language with no such pages (rust 0) falls below the floor and STAYS on the miner,
@@ -73,7 +73,7 @@ pub(crate) const GRADUATED_MODULE_FLOOR: usize = 3;
 
 /// Process latch: network acquisition (registry pull, crawl, discovery, grammar download) is
 /// allowed only when a SETUP verb set it — `lint_config action=train` and nothing else. A lint
-/// run never sets it, so linting is replay-only by construction (LINTER.md, "Lint never
+/// run never sets it, so linting is replay-only by construction (native/architecture.dx, "Lint never
 /// touches the network"). `HELPERS_LINT_OFFLINE` keeps setup off the real network in the
 /// hermetic contract tests.
 static NETWORK_SETUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -190,7 +190,7 @@ impl LearnedCatalog {
     ) -> (Vec<DocRule>, Vec<String>, Vec<Contradiction>, Vec<(String, String)>, Vec<crate::lint_read::ReadFact>) {
         match &self.memory {
             Some(memory) => {
-                // THE FLIP (2026-07-11, LINTER.md "The flip pass"): a language's MODULE rules are the
+                // THE FLIP (2026-07-11, native/history.dx "The flip pass"): a language's MODULE rules are the
                 // PROVEN construct rules from the construct-module workflow ([`crate::lint_module`]) —
                 // each graduated through the frozen self-generated test loop (or the notecard path) over
                 // the docs' OWN prohibition/deprecation pages — for every language the new workflow OWNS.
@@ -295,7 +295,7 @@ pub struct TrainReport {
     /// Languages whose learned catalog was downloaded from the GitHub model registry this run.
     pub pulled: Vec<String>,
     /// Languages a replay-only run served from a STALE module (engine/toolchain/sources
-    /// stamp mismatch) — outdated knowledge still enforces (LINTER.md, "Lint never learns
+    /// stamp mismatch) — outdated knowledge still enforces (native/architecture.dx, "Lint never learns
     /// from the network"), and the report owes the user the out-of-date footer.
     pub outdated: Vec<String>,
     /// A network request failed at the TRANSPORT level this run (or the hermetic
@@ -512,7 +512,7 @@ fn token_names_language(token: &str) -> bool {
 }
 
 /// The language-AGNOSTIC portion of a canon corpus document — the ONLY portion the CS-principles
-/// module wires (LINTER.md: "language-agnostic sections only … a canon's language-specific appendix
+/// module wires (native/architecture.dx: "language-agnostic sections only … a canon's language-specific appendix
 /// is excluded"). The canon states its principles as Markdown sections; a section whose HEADING
 /// names a known language ([`token_names_language`] — never a coded list) is a language appendix and
 /// is dropped together with its nested (deeper-heading) subsections, so `## Language-Specific: C# and
@@ -677,7 +677,7 @@ pub fn project_rule_ids(project_root: &Path, lang: &str) -> std::collections::Ha
 /// grounding evidence for construct selection: a law names constructs that live in the code it
 /// governs, so the project itself is the one corpus that is ALWAYS available, in any language,
 /// with no shapes assumed. Pass an empty map when compiling rules with no project in hand.
-/// The project's code as grounding input, served LAZILY (LINTER.md, "Warm runs replay
+/// The project's code as grounding input, served LAZILY (native/architecture.dx, "Warm runs replay
 /// per-file verdicts"): fingerprints come from cached content seeds — no file reads — and the
 /// full sources are pulled only on the rare path that actually needs them (an overlay
 /// recompiling against its grounding universe).
@@ -764,7 +764,7 @@ pub fn ensure_models(
 /// languages can run on their own threads. Returns the language's report slice and its model
 /// (`None` when the language is skipped).
 ///
-/// The model is `overlay ⊕ module` (LINTER.md, "Save"): the shared AI MODULE (doc-trained,
+/// The model is `overlay ⊕ module` (native/architecture.dx, "Save"): the shared AI MODULE (doc-trained,
 /// project-independent, registry-shareable) merged under the PROJECT OVERLAY (the project's
 /// law + the machine corpus principles, compiled locally). Documentation is purely training
 /// input — the module carries only the compiled result and its provenance timestamp.
@@ -809,7 +809,7 @@ fn train_language(
     if network_allowed() {
         // 100% VERIFIED CURRENT: past the verification window, every inventoried page is
         // conditionally revalidated against the live site; only real movement retrains —
-        // an all-304 sweep just restarts the window (LINTER.md, "Save").
+        // an all-304 sweep just restarts the window (native/architecture.dx, "Save").
         if let Some(m) = &mut module {
             if unix_now().saturating_sub(m.verified_at.max(m.trained_at)) > MODULE_MAX_AGE {
                 if crate::lint_docs::refresh_language_pages(data_root, lang, &version) {
@@ -828,7 +828,7 @@ fn train_language(
             }
         }
     } else if module.is_none() && stale {
-        // OUTDATED KNOWLEDGE STILL ENFORCES (LINTER.md, "Lint never learns from the
+        // OUTDATED KNOWLEDGE STILL ENFORCES (native/architecture.dx, "Lint never learns from the
         // network"): a replay-only run uses the stale module AS-IS — old reading beats no
         // reading — reports the language as out of date, and the bounded validation pass
         // (tools/lint.rs) tries the one cheap fix. Rebuilding from cached pages is real
@@ -882,7 +882,7 @@ fn train_language(
                 mark(&mut splits, "module");
                 return (report, None);
             }
-            // Concepts exist only for rules that can FIRE (LINTER.md, "Hv concept gate"):
+            // Concepts exist only for rules that can FIRE (native/architecture.dx, "Hv concept gate"):
             // a rule that compiled no detector can never be confirmed, and its fingerprint
             // would only serve to veto other rules' true findings — measured: a
             // detector-less concept outranked `no_var_declaration` on its own construct.
@@ -1031,7 +1031,7 @@ fn train_language(
     }
 
     // ── 3) overlay ⊕ module (overlay first — trust order). ──
-    // A prose language's module contributes READING only (LINTER.md, "Docs are reading
+    // A prose language's module contributes READING only (native/architecture.dx, "Docs are reading
     // material"): its files are raw English end to end — the universe ledger #12 excludes —
     // so learned detectors never fire there; only the project's own law governs them.
     let (module_rules, module_concept) = match module {
@@ -1070,7 +1070,7 @@ const MODULE_MAX_AGE: u64 = 24 * 60 * 60;
 /// The shareable, runnable AI MODULE for one language: the compiled doc-rule pattern engine,
 /// its hypervector concept gate, and provenance (`toolchain @ sources @ TRAIN_VERSION @
 /// trained_at`). This — and only this — is what the registry shares: no documentation in any
-/// form (LINTER.md, "Save"). Small header fields serialize first so a prefix probe reads
+/// form (native/architecture.dx, "Save"). Small header fields serialize first so a prefix probe reads
 /// provenance without parsing the engines.
 #[derive(Serialize, Deserialize)]
 struct Module {
@@ -1084,11 +1084,11 @@ struct Module {
     #[serde(default)]
     verified_at: u64,
     learned_from: String,
-    /// The language's learned file-extension claims (LINTER.md, "File types are learned by
+    /// The language's learned file-extension claims (native/architecture.dx, "File types are learned by
     /// reading") — folded into the machine-global extension map at save.
     #[serde(default)]
     extensions: std::collections::BTreeMap<String, u32>,
-    /// The knowledge-snapshot fingerprint this module was COMPLETED against (LINTER.md → Item 3d):
+    /// The knowledge-snapshot fingerprint this module was COMPLETED against (native/history.dx → Item 3d):
     /// the brain's [`crate::lint_char::brain_fingerprint`] at train time (0 when no brain existed).
     /// Together with `train_version` + `sources_fp` it is the completion stamp — a changed brain
     /// reopens refinement (the module goes stale and its rules re-prove through the 3c re-check).
@@ -1191,7 +1191,7 @@ pub(crate) fn stamp_regression(path: &Path, stamp: &str) -> bool {
 }
 
 /// Encode one `HLM1` artifact file, creating the directory and deleting the legacy `.json`
-/// twin so migrated machines keep exactly one copy (LINTER.md, "Save"). Refuses a
+/// twin so migrated machines keep exactly one copy (native/architecture.dx, "Save"). Refuses a
 /// train-ordinal REGRESSION ([`stamp_regression`]) — an outlived process keeps the newer store.
 fn save_bin<T: Bin>(path: &Path, kind: u8, stamp: &str, value: &T) {
     if stamp_regression(path, stamp) {
@@ -1221,7 +1221,7 @@ pub fn cached_ruleset(lang: &str) -> Option<crate::lint_match::RuleSet> {
     load_module(lang).map(|m| m.rules)
 }
 
-/// A trained module's COMPLETION state (LINTER.md → Item 3d): the knowledge snapshot it was proven
+/// A trained module's COMPLETION state (native/history.dx → Item 3d): the knowledge snapshot it was proven
 /// against and whether that snapshot is STILL current on this machine. `complete == true` means the
 /// module was written under today's train logic, the current registered sources, and (when a brain
 /// exists) this machine's current understanding — its proven set is at fixpoint and needs no refinement.
@@ -1271,7 +1271,7 @@ pub fn cached_memory(lang: &str) -> Option<crate::lint_read::Memory> {
 }
 
 /// The machine-global CORPUS rules compiled for `lang` — the understanding→trace (and probe
-/// fallback) rules the live overlay derives from `<data_root>/corpus/*.md`, read FRESH (LINTER.md,
+/// fallback) rules the live overlay derives from `<data_root>/corpus/*.md`, read FRESH (native/architecture.dx,
 /// "the corpus is read fresh each run"). The `lint_query rules` interrogation enumerates these
 /// ALONGSIDE the crawled-doc module so the listing reflects what GENUINELY enforces, not just the
 /// module. Built with empty grounding: a trace/probe rule binds from UNDERSTANDING alone — grounding
@@ -1333,7 +1333,7 @@ fn load_graduated_ledger(lang: &str) -> Vec<DocRule> {
 }
 
 /// One dropped ledger rule: its byte-preserved construct id and the source page whose re-check
-/// contradicted it — recorded so a contradiction is NEVER a silent drop (LINTER.md → Item 3c).
+/// contradicted it — recorded so a contradiction is NEVER a silent drop (native/history.dx → Item 3c).
 type Contradiction = (String, String);
 
 /// PASS 31 — the CONSERVATION INVARIANT check: every PROVEN construct rule (a `uses-…` graduated rule,
@@ -1426,7 +1426,7 @@ fn persist_graduated_ledger(lang: &str, rules: &[DocRule]) {
     }
 }
 
-// ── File types are learned by reading (LINTER.md) ─────────────────────────────────────────
+// ── File types are learned by reading (native/architecture.dx) ─────────────────────────────────────────
 //
 // The machine-global extension map: `{language → {extension → mention count}}`, folded from
 // every saved module. Resolution and law-stem aliasing both read it; the committed bootstrap
@@ -1438,7 +1438,7 @@ fn persist_graduated_ledger(lang: &str, rules: &[DocRule]) {
 pub(crate) type ExtClaims = std::collections::BTreeMap<String, u32>;
 
 /// Where the machine-global extension map lives — beside the modules it is folded from.
-/// `HLM1` binary like every machine artifact (LINTER.md, "The live path": nothing on the
+/// `HLM1` binary like every machine artifact (native/architecture.dx, "The live path": nothing on the
 /// hot path parses JSON); the `.json` spelling survives only as a legacy read fallback.
 fn extension_map_path() -> PathBuf {
     model_dir().join("extensions.bin")
@@ -1544,7 +1544,7 @@ pub fn resolve_language(name_or_ext: &str) -> String {
 }
 
 /// The KNOWN language a docs code-block hint declares, or `None` when the label resolves to
-/// nothing this machine knows (LINTER.md, ledger #18): junk fence labels ("output", "plain")
+/// nothing this machine knows (native/architecture.dx, ledger #18): junk fence labels ("output", "plain")
 /// are not hints, and treating them as languages would silently discard real examples. A label
 /// is knowledge when resolution transformed it (an alias/typography match — "js" ⇒ javascript)
 /// or the resolved name itself holds a claims entry.
@@ -1795,7 +1795,7 @@ fn resolve_rules(
         };
         let (rules, reference, contradictions, withheld, facts) = cat.doc_rules(lang, data_root);
         record_contradictions(report, lang, contradictions);
-        // Reading IS the module (LINTER.md): a descriptive spec that yields ZERO prohibition
+        // Reading IS the module (native/architecture.dx): a descriptive spec that yields ZERO prohibition
         // rules still delivers the reference corpus and comprehension — the language is set
         // up, not "unlearned". Only a source that could not be READ falls through.
         report.crawled.push(lang.to_string());
@@ -1828,7 +1828,7 @@ fn crawl_learn(data_root: &Path, lang: &str, version: &str) -> Option<crate::lin
         return None;
     }
     let memory = crate::lint_docs::read_language(lang, &sources, MAX_CRAWL_PAGES, data_root, Some(version));
-    // A read succeeded when ANY page's prose was read (LINTER.md, "reading IS the module") —
+    // A read succeeded when ANY page's prose was read (native/architecture.dx, "reading IS the module") —
     // bindings and reference code are riches, never the bar. Requiring bindings∨reference
     // threw away prose-only spec sites with no code blocks at all (json.org presents its
     // grammar as diagrams), reporting a cleanly-read language as "docs not learned".
@@ -1848,12 +1848,12 @@ pub(crate) fn registered_docs_sources(data_root: &Path, lang: &str) -> Vec<crate
 
 /// The documentation URLs resolved for `lang` — what the setup report probes when a NEEDED
 /// language failed to learn, to tell "site not answering" apart from "link answers but has
-/// nothing readable" (LINTER.md, "Online to set up").
+/// nothing readable" (native/architecture.dx, "Online to set up").
 pub(crate) fn source_urls(data_root: &Path, lang: &str) -> Vec<String> {
     resolved_sources(data_root, lang).into_iter().map(|s| s.url).collect()
 }
 
-// ── The language manifest (LINTER.md, "The language manifest") ────────────────
+// ── The language manifest (native/architecture.dx, "The language manifest") ────────────────
 //
 // One user-owned file — `~/.config/helpers/languages.json` — says where every language's
 // instructions come from. Setup backfills it from the committed registry; the user's edits
@@ -1893,7 +1893,7 @@ fn manifest_write(map: &std::collections::BTreeMap<String, Vec<String>>) {
         let _ = std::fs::create_dir_all(dir);
     }
     let doc = serde_json::json!({
-        "_note": "Where each language's lint instructions come from (LINTER.md, 'The language manifest'). Yours to edit: change a language's URLs to retrain it from those docs at the next setup; set [] to disable its docs (the linter will ask); a language you delete is re-added from the committed registry. `sites` lists whole websites to learn from — every language a site's pages document gets a module. `lint_config action=add_source` writes here.",
+        "_note": "Where each language's lint instructions come from (native/architecture.dx, 'The language manifest'). Yours to edit: change a language's URLs to retrain it from those docs at the next setup; set [] to disable its docs (the linter will ask); a language you delete is re-added from the committed registry. `sites` lists whole websites to learn from — every language a site's pages document gets a module. `lint_config action=add_source` writes here.",
         "languages": map,
         "sites": manifest_sites(),
     });
@@ -2018,7 +2018,7 @@ fn manifest_tool(url: &str) -> String {
     format!("{host}-{:08x}", crate::lint_ai::token_seed(url) as u32)
 }
 
-/// The single source-resolution seam (LINTER.md, "The language manifest"): every consumer —
+/// The single source-resolution seam (native/architecture.dx, "The language manifest"): every consumer —
 /// training, fingerprints, freshness probes, "needs a docs URL" asks — reads THIS, so the
 /// manifest, the registry, and the staleness stamps can never disagree about where a
 /// language's docs live. A manifest entry equal to the registry's URL set returns the
@@ -2252,7 +2252,7 @@ pub(crate) fn corpus_prose(data_root: &Path) -> Vec<String> {
     }
 }
 
-// ── HLM1 binary codecs (LINTER.md, "Save") — field order is wire order. ──────
+// ── HLM1 binary codecs (native/architecture.dx, "Save") — field order is wire order. ──────
 
 impl Bin for DocRule {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {
@@ -2334,7 +2334,7 @@ fn registry_fetch(data_root: &Path, lang: &str, version: &str, sources_fp: &str)
 }
 
 /// [`registry_fetch`] WITHOUT the setup latch — the bounded validation pass's entry
-/// (LINTER.md, "Lint may VALIDATE, never learn"): a replay-only run that served outdated
+/// (native/architecture.dx, "Lint may VALIDATE, never learn"): a replay-only run that served outdated
 /// knowledge may pull the current module, and nothing else. The hermetic offline switch
 /// and the transport-down latch still apply.
 #[cfg(feature = "crawl")]
@@ -2396,7 +2396,7 @@ fn registry_fetch(_data_root: &Path, _lang: &str, _version: &str, _sources_fp: &
     None
 }
 
-/// The bounded validation pass (LINTER.md, "Lint may VALIDATE, never learn"): for every
+/// The bounded validation pass (native/architecture.dx, "Lint may VALIDATE, never learn"): for every
 /// language a replay-only run served from a stale module, try the one cheap fix — a
 /// registry pull of the current module — on a background thread, waiting at most `budget`.
 /// Returns whether EVERY such language came current within the budget. The thread keeps
@@ -2504,7 +2504,7 @@ fn sources_fingerprint(data_root: &Path, lang: &str) -> String {
     // Fold the machine-global corpus CONTENT into the fingerprint: the corpus principles compile
     // into every language's module (understanding→trace bridge / probe fallback), so editing a
     // principle — or adding a new one — must rebuild the module and enforce with ZERO code change
-    // (LINTER.md, "the understanding→trace bridge"). Hashing content (not just the file listing)
+    // (native/architecture.dx, "the understanding→trace bridge"). Hashing content (not just the file listing)
     // is what catches an in-place edit to an existing corpus file.
     let fp = crate::lint_ai::token_seed(&urls.join("\u{1f}")) ^ corpus_content_fp(data_root);
     format!("{fp:016x}")
@@ -2657,7 +2657,7 @@ fn save_cache(lang: &str, cat: &LearnedCatalog) {
 
 /// SETUP-TIME sweep of the model cache: migrate or delete every legacy artifact the load
 /// paths would otherwise never touch again — a fresh machine never re-reads a stale file, so
-/// without this the JSON era would sit on disk forever (LINTER.md, "Save": exactly one copy).
+/// without this the JSON era would sit on disk forever (native/architecture.dx, "Save": exactly one copy).
 /// Owned file families only; returns how many files were migrated away or deleted. Lint runs
 /// never call this — setup mutates, lint replays.
 pub fn sweep_legacy_cache(data_root: &Path) -> usize {
@@ -2727,7 +2727,7 @@ fn overlay_stamp_of(lang: &str, data_root: &Path, version: &str, law: &[DocRule]
     h.update(file_state(&cache_path(lang)).to_le_bytes());
     h.update(file_state(&crate::lint_docs::global_polarity_path()).to_le_bytes());
     // The substrates shape comprehension (page reading forms units through the character
-    // brain's meaning network and learned structural roles — LINTER.md, "Reading a page is
+    // brain's meaning network and learned structural roles — native/architecture.dx, "Reading a page is
     // UNDERSTANDING"), so a rebuilt brain must recompile what was read through the old one.
     h.update(file_state(&model_dir().join("char.global.bin")).to_le_bytes());
     h.update(file_state(&model_dir().join("english.global.bin")).to_le_bytes());
@@ -3032,7 +3032,7 @@ mod tests {
     }
 
     /// One fixture per artifact struct, round-tripped through its `HLM1` container — the
-    /// "100% verified" contract for the wire format itself (LINTER.md, "Save"). The module
+    /// "100% verified" contract for the wire format itself (native/architecture.dx, "Save"). The module
     /// fixture carries a real compiled detector, a real concept gate, and a trained polarity
     /// classifier so every stream (raw hypervectors, integer arrays, deflated text) is hit.
     #[test]
@@ -3377,7 +3377,7 @@ mod tests {
 
     #[test]
     fn a_stale_module_still_enforces_offline_and_is_reported_outdated() {
-        // LINTER.md, "Lint never learns from the network": a replay-only run must serve a
+        // native/architecture.dx, "Lint never learns from the network": a replay-only run must serve a
         // stale module AS-IS (old reading beats no reading) and name the language in
         // `TrainReport::outdated`, never degrade it to "not set up".
         let dir = std::env::temp_dir().join(format!("stale-module-{}", std::process::id()));

@@ -6,7 +6,7 @@
 //! is a self-contained probe-mechanism fixture (see `PRINCIPLES`); the owner's real canon and its
 //! honest, sparser coverage are measured by `lint_trace::coverage_map`, not asserted here.
 //!
-//! The mechanism under test (LINTER.md, "Rules from understanding — the probe bridge"): a
+//! The mechanism under test (native/architecture.dx, "Rules from understanding — the probe bridge"): a
 //! structural AST *probe* is coded machinery (dead-code-after-return, unwrap-on-fallible, an
 //! over-long function, a pub item with no doc, an unexplained numeric literal, a single-letter
 //! binding, a secret-shaped literal). WHICH probes are live, and their advice, come entirely

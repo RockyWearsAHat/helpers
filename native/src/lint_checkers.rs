@@ -31,7 +31,7 @@ fn toolchain_binary(lang: &str) -> Option<(&str, &[&[&str]])> {
 /// and cache the right version of the rules. Answers come from a MACHINE cache
 /// (`<models>/toolchains.json`) keyed by the resolved binary's `(path, mtime, len)` — absence
 /// keyed by a PATH fingerprint — so a warm run spawns NOTHING: seventeen parallel version
-/// spawns were the single largest stage of every warm lint (LINTER.md, "Warm runs replay
+/// spawns were the single largest stage of every warm lint (native/architecture.dx, "Warm runs replay
 /// per-file verdicts"). Installing, upgrading, or removing a toolchain changes the key and
 /// re-probes exactly the affected language.
 pub fn detect_version(lang: &str) -> Option<String> {

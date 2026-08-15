@@ -1,7 +1,7 @@
 //! Unit contracts for [`super`] — kept GENERATIVE where possible: correctness is asserted as
 //! invariants over construct×template×grounding tables, so coverage grows by widening a table,
 //! never by authoring another hand test. Each table row exists because a ledger entry
-//! (`LINTER.md`) says the dimension once broke; the loops keep every combination pinned at once.
+//! (`native/architecture.dx`) says the dimension once broke; the loops keep every combination pinned at once.
 //! The whole-pipeline FP/FN matrix (real binary, real project) lives in
 //! `tests/ai_linter_behaviors.rs`.
 
@@ -193,7 +193,7 @@ fn a_law_fires_on_code_and_never_on_strings_comments_or_substrings() {
     }
 }
 
-/// The FIRING-UNIVERSE table (LINTER.md evidence hierarchy; ledger #12 generalized): where a
+/// The FIRING-UNIVERSE table (native/architecture.dx evidence hierarchy; ledger #12 generalized): where a
 /// law's construct lives in the project × whether the author backtick-marked it decides which
 /// text universe the detector fires in. One row per (grounding universe, marking) cell; a new
 /// universe bug becomes a row here, never a test function.
@@ -348,7 +348,7 @@ fn example_backed_rules_also_need_a_forbidding_sentence_unless_trusted() {
 
 #[test]
 fn over_general_single_token_from_a_reference_section_is_dropped() {
-    // The junk-doc-rule FP class (LINTER.md "Entry gates"): a descriptive REFERENCE section that
+    // The junk-doc-rule FP class (native/architecture.dx "Entry gates"): a descriptive REFERENCE section that
     // states no prohibition — and, in the real hole, is read with no ready classifier — can leak a
     // single-token detector on a token that is UBIQUITOUS in the language's own normal code (a
     // `usize`/`use` keyword or type). Such a section shows only usage snippets — it carries NO good
@@ -577,7 +577,7 @@ fn example_identifier_never_welds_into_the_detector_when_a_single_token_discrimi
     // no_var_declaration-class docs: bad and good differ ONLY in the keyword (`var` vs
     // `let`); the identifier (`count`) is shared. The relaxed pair pass, tried before the
     // single token, once compiled `var … count` — welded to the example's own identifier —
-    // and every real `var` line without a `count` beside it went unflagged (LINTER.md,
+    // and every real `var` line without a `count` beside it went unflagged (native/architecture.dx,
     // "Compile": most general detector that still discriminates).
     let rules = [rule(
         "no_var_declaration",
@@ -612,7 +612,7 @@ fn js_container_rule_fires_on_var_items() {
 fn a_graduated_rule_fires_its_plan_and_survives_reference_fire() {
     // A graduated construct-module rule carries its construct, so it compiles DIRECTLY to
     // `uses_construct(var)` and fires the proven plan in the one walk — never a detector
-    // re-derived from the example diff (LINTER.md, "The modular rebuild"). It is EXEMPT from the
+    // re-derived from the example diff (native/architecture.dx, "The modular rebuild"). It is EXEMPT from the
     // statistical reference-fire gate: the construct it bans is legacy-ubiquitous BY DESIGN
     // (`var` is taught using `var`), so a reference corpus saturated with `var` must not veto it.
     let rules = [rule_plan(

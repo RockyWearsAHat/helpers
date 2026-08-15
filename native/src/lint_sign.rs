@@ -1,4 +1,4 @@
-//! `lint_sign` — the cryptographic seam of the module-sharing channel (LINTER.md, "The
+//! `lint_sign` — the cryptographic seam of the module-sharing channel (native/architecture.dx, "The
 //! sharing channel is SIGNED, MONITORED, and never direct").
 //!
 //! Every machine holds an Ed25519 keypair (generated on first submission); every submission

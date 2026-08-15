@@ -9,7 +9,7 @@
 //! same signal — code runs are high-surprise, prose is low-surprise, a section boundary is a
 //! surprise spike. No HTML parser, no tag list, no `Gap`.
 //!
-//! Unlike the old word reader, the prediction memory is PERSISTED (LINTER.md, "Markup second"):
+//! Unlike the old word reader, the prediction memory is PERSISTED (native/architecture.dx, "Markup second"):
 //! a loaded reader must be able to read a page back, so its context→next-char associations ride
 //! the artifact. The memory is bounded ([`MEM_CAP`] slots), so the substrate stays small.
 
@@ -40,15 +40,15 @@ const MEM_CAP: usize = 8 << 20;
 /// ([`MeaningNetwork::weight_of`], owner directive 2026-07-08) so `related()` SEPARATES concepts —
 /// the distinctive words carry the sense; the document-frequency table rides the artifact, so
 /// every stale brain rebuilds to gain it. 8–10: usage-learned sense, docs folded into the concept
-/// graph, and the cross-page-invariance chrome filter (see the LINTER.md appendix for each).
-/// 11: the MARKDOWN curriculum (LINTER.md rung 1) — real docs-shaped markdown is read at the
+/// graph, and the cross-page-invariance chrome filter (see the native/architecture.dx appendix for each).
+/// 11: the MARKDOWN curriculum (native/history.dx rung 1) — real docs-shaped markdown is read at the
 /// character level between English and the web, and its line typography (fenced code, ATX headings)
 /// tallies into the SAME learned role space through [`crate::lint_graph::scan_markdown`], so every
 /// stale brain rebuilds to read markdown by the register it shares with HTML.
-/// 12: the MDN-content markdown corpus (LINTER.md rung 2a) joins the curriculum — the SOURCE
+/// 12: the MDN-content markdown corpus (native/history.dx rung 2a) joins the curriculum — the SOURCE
 /// markdown of the crawled MDN pages, whose fences are tagged ` ```js `/` ```css ` and are ~98%
 /// code, so the fence marker EARNS its code register by exposure (the rung-1 abstain is crossed).
-/// 13: fence role-votes are keyed by the author's own INFO-STRING (LINTER.md rung 1) — ` ```js `,
+/// 13: fence role-votes are keyed by the author's own INFO-STRING (native/history.dx rung 1) — ` ```js `,
 /// ` ```plain `, and a bare ` ``` ` are DISTINCT markers, so a tagged code fence earns its own
 /// register separate from an output/`plain` fence; every stale brain rebuilds to the split keying.
 const BRAIN_REV: u64 = 13;
@@ -78,12 +78,12 @@ pub struct CharReader {
     mem: HashMap<u32, Vec<char>>,
     /// Total characters read — the mass surprise averages are measured against.
     total: u64,
-    /// The dictionary MEANING NETWORK bound during the same read (LINTER.md, "The dictionary
+    /// The dictionary MEANING NETWORK bound during the same read (native/architecture.dx, "The dictionary
     /// meaning network"): each headword wired to the words of its definition, the comprehension
     /// backbone `meaning_of`/`related` query. PERSISTED with the reader — a loaded brain answers
     /// what a word MEANS, not only how it is spelled.
     meanings: MeaningNetwork,
-    /// The learned STRUCTURAL ROLES (LINTER.md, "Reading a page is UNDERSTANDING"): the register
+    /// The learned STRUCTURAL ROLES (native/architecture.dx, "Reading a page is UNDERSTANDING"): the register
     /// the brain saw follow each markup token across the web curriculum, an association keyed by
     /// the element's own characters. This is what parts a section title from a code example when
     /// meaning alone cannot. PERSISTED with the reader — a loaded brain reads pages by it.
@@ -458,7 +458,7 @@ pub fn spell_vector(word: &str) -> Option<Hv> {
     word_vector(word)
 }
 
-// ── The dictionary meaning network (LINTER.md, "The dictionary meaning network") ──
+// ── The dictionary meaning network (native/architecture.dx, "The dictionary meaning network") ──
 
 /// How much the FIRST hop (a word's own definition) outweighs the transitively-expanded
 /// neighborhood in [`MeaningNetwork::meaning_of`]. The expansion pulls in ~12× more words than the
@@ -559,7 +559,7 @@ pub struct MeaningNetwork {
     /// dominates its headword's meaning. Sorted by seed for binary-search lookup, and PERSISTED so
     /// a loaded brain rebinds the identical inverse-frequency-weighted meaning. Empty until sealed.
     df: Vec<(u64, u32)>,
-    /// The LEARNED USAGE sense (LINTER.md, "Meaning is learned from usage, not only definition"):
+    /// The LEARNED USAGE sense (native/architecture.dx, "Meaning is learned from usage, not only definition"):
     /// headword seed → the distinctive words it CO-OCCURS with across explanatory prose, each with
     /// its accumulated co-occurrence count. This is how a word whose dictionary sense is narrow
     /// ("swallow" = the eating verb) grows a SECOND, learned sense from real programming text
@@ -627,7 +627,7 @@ impl MeaningNetwork {
     }
 
     /// Fold a block of PROSE into the co-occurrence substrate as sentence-window observations — the
-    /// one reader behind BOTH the explanation corpus and the docs curriculum (LINTER.md, "Meaning is
+    /// one reader behind BOTH the explanation corpus and the docs curriculum (native/architecture.dx, "Meaning is
     /// learned from usage"). Splits on sentence terminals, [`observe`](Self::observe)s each window of
     /// its content words together, and returns the sentence count read. The caller
     /// [`seal`](Self::seal)s afterward to fold the observations into the ranked usage sense.
@@ -1110,7 +1110,7 @@ impl crate::lint_codec::Bin for MeaningNetwork {
     }
 }
 
-// ── Learned structural roles (LINTER.md, "Reading a page is UNDERSTANDING") ────
+// ── Learned structural roles (native/architecture.dx, "Reading a page is UNDERSTANDING") ────
 
 /// The register the brain saw follow each markup token across the web curriculum — a code
 /// carrier (`+1`, its contained text read as code) or a section heading (`-1`, short
@@ -1257,14 +1257,14 @@ pub fn rules_from_understanding(
         // The CONSTRUCT — the word the sentence is ABOUT that English cannot account for: a
         // dictionary non-word that is code-shaped (carries a letter). The most distinctive
         // (longest) such word is the named construct ("goto" among ordinary English).
-        // MIGRATION (LINTER.md, "retiring word-level `english.knows`"): `!eng.knows` becomes
+        // MIGRATION (native/architecture.dx, "retiring word-level `english.knows`"): `!eng.knows` becomes
         // `!lint_graph::word_is_english(char_brain, w)` once the char brain is threaded here and
         // this test carries a meaning-bound brain — LEFT until then so understanding stays intact.
         let candidate = words
             .iter()
             .filter(|w| !eng.knows(w) && w.chars().any(|c| c.is_alphabetic()))
             .max_by_key(|w| w.len());
-        // UNDERSTANDING — does this sentence STATE a prohibition (LINTER.md, "Entry gates")? A
+        // UNDERSTANDING — does this sentence STATE a prohibition (native/architecture.dx, "Entry gates")? A
         // negation operator commands it ("Never use X") or a word names disapproval of the
         // construct ("X is incorrect") — discovered from the dictionary's meaning network, never
         // a keyword list. A negation merely buried in a description ("it is not allowed to move
@@ -1382,7 +1382,7 @@ pub fn train_curriculum<'a>(corpora: impl IntoIterator<Item = &'a str>) -> CharR
 const WEB_CURRICULUM: [&str; 3] = ["html", "css", "javascript"];
 
 /// The MARKDOWN curriculum corpus — real docs-shaped markdown the brain reads AFTER plain-text
-/// English and BEFORE the web curriculum (LINTER.md rung 1: txt → markdown → HTML). Its structure
+/// English and BEFORE the web curriculum (native/history.dx rung 1: txt → markdown → HTML). Its structure
 /// (headings, fenced code) is learned by exposure through the char reader, exactly as web element
 /// roles are, so the reader arrives at HTML already knowing the heading and code-fence registers.
 /// Sourced from two DATA clones beside the models, each present after its registered fetch and
@@ -1509,7 +1509,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     if let Some(corpus) = crate::lint_socrawl::load() {
         fp ^= (corpus.pages.len() as u64).wrapping_mul(0x100000001B3).rotate_left(19);
     }
-    // Fold the MARKDOWN curriculum corpus into the fingerprint (LINTER.md rung 1): a changed docs
+    // Fold the MARKDOWN curriculum corpus into the fingerprint (native/history.dx rung 1): a changed docs
     // corpus retrains the txt/markdown stage instead of replaying stale roles.
     let markdown = markdown_corpus();
     for md in &markdown {
@@ -1540,7 +1540,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     }
     lap(&mut clock, "english-learn");
     // Bind the dictionary's headword→definition meaning network from the SAME dictionary
-    // (LINTER.md, "The dictionary meaning network") — the char substrate's comprehension graph.
+    // (native/architecture.dx, "The dictionary meaning network") — the char substrate's comprehension graph.
     if let Some(defs) = crate::lint_english::dictionary_definitions(None, MAX_MEANING_WORDS) {
         for (head, words) in &defs {
             let refs: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -1549,7 +1549,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         r.meanings.seal();
         order.push(format!("meanings {}w", r.meanings.len()));
     }
-    // LEARN MEANING FROM USAGE (LINTER.md, "Meaning is learned from usage, not only definition"):
+    // LEARN MEANING FROM USAGE (native/architecture.dx, "Meaning is learned from usage, not only definition"):
     // read the cached Stack Overflow explanation corpus as co-occurrence, so jargon terms the
     // dictionary defines narrowly (or not at all) grow a real learned sense from how programmers
     // actually use them. Reads the cache (fetching once when absent and online); a smarter reader
@@ -1563,7 +1563,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         }
     }
     lap(&mut clock, "meanings-bind");
-    // MARKDOWN CURRICULUM (LINTER.md rung 1): read real docs-shaped markdown at the character level
+    // MARKDOWN CURRICULUM (native/history.dx rung 1): read real docs-shaped markdown at the character level
     // AFTER plain-text English and BEFORE the web, so its typography (headings, fenced code) is
     // learned by exposure and the reader arrives at HTML already knowing those registers. The bodies
     // are kept for the structure-role learner, which reads them through the markdown line typography.
@@ -1584,7 +1584,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     // once instead of thousands of near-identical copies. The deduped raw-HTML pages are kept for
     // the structure-role learner (it needs markup in context, and identical chrome adds no
     // discriminating instances anyway).
-    // CROSS-PAGE-INVARIANCE CHROME FILTER (LINTER.md → "Cross-page invariance = chrome, discarded";
+    // CROSS-PAGE-INVARIANCE CHROME FILTER (native/laws.dx → "Cross-page invariance = chrome, discarded";
     // owner north-star). Before the curriculum is read, discover each site's navigation/menu/footer
     // boilerplate by exact text-run recurrence across the site's own pages and blank it — chrome
     // carries zero meaning, so it must never enter the meaning graph or the learned structure roles.
@@ -1631,7 +1631,7 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
         order.push(format!("doc-prose {doc_sentences}s"));
     }
     lap(&mut clock, "doc-prose-observe");
-    // Learn the page STRUCTURE by exposure (LINTER.md, "Reading a page is UNDERSTANDING"): over
+    // Learn the page STRUCTURE by exposure (native/architecture.dx, "Reading a page is UNDERSTANDING"): over
     // the same (deduped) web curriculum, which register followed each markup token — code carriers
     // vs section headings — read with the meaning network just sealed. This is what lets the reader
     // tell a title from an example when their words are equally unbound.
@@ -1672,7 +1672,7 @@ fn brain_fp() -> Option<u64> {
 
 /// The persisted brain's knowledge-snapshot fingerprint — the folded (`BRAIN_REV` ⊕ dictionary ⊕ web
 /// pages ⊕ explanation corpus) identity written beside the brain artifact. Public so a trained module
-/// can stamp the exact understanding it was built on (LINTER.md → Item 3d, COMPLETE against a knowledge
+/// can stamp the exact understanding it was built on (native/history.dx → Item 3d, COMPLETE against a knowledge
 /// snapshot): when this changes, the module's completion is reopened and its rules are re-proven through
 /// the 3c re-check. `None` when no brain has been built on this machine (a pull-only machine) — the
 /// module currency gate then skips the brain axis rather than churn. A pure read; never trains.

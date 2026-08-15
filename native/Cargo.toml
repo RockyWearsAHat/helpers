@@ -32,7 +32,7 @@ wait-timeout = "0.2"
 # Canonical sha256 for the packed lint-index checksum (fast-path integrity check).
 sha2 = "0.10"
 # Pure-Rust zlib inflate for the macOS dictionary body (the common-language substrate,
-# LINTER.md "Common language first") — no C zlib, cross-compilation stays clean.
+# native/architecture.dx "Common language first") — no C zlib, cross-compilation stays clean.
 miniz_oxide = "0.8"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }

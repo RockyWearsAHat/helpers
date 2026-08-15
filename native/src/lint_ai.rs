@@ -370,7 +370,7 @@ impl ConceptModel {
             fired.push(fired_idx);
             batch_slots.push(i);
         }
-        // A tie is STATISTICAL (LINTER.md, "Hv concept gate"): one line can violate the
+        // A tie is STATISTICAL (native/architecture.dx, "Hv concept gate"): one line can violate the
         // fired rule while legitimately containing another rule's territory (`var doubled =
         // eval(…)` put the eval concepts 85 bits nearer and winner-take-all killed a true
         // finding), so the fired rule loses only when the nearest concept beats it by more
@@ -400,7 +400,7 @@ impl ConceptModel {
     }
 }
 
-// ── HLM1 binary codecs (LINTER.md, "Save") ────────────────────────────────────
+// ── HLM1 binary codecs (native/architecture.dx, "Save") ────────────────────────────────────
 
 impl crate::lint_codec::Bin for Hv {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {
@@ -513,7 +513,7 @@ mod tests {
     fn an_unseen_identifier_cannot_reject_a_true_finding() {
         // `var leaky = 2;` in a tiny project: "leaky" appears in no rule's reading, so its
         // random code drags the two-token bundle far from everything — but among concepts
-        // of rules that can actually fire (LINTER.md, "Hv concept gate": detector-less
+        // of rules that can actually fire (native/architecture.dx, "Hv concept gate": detector-less
         // rules compile no fingerprint), the fired rule's own `var` mass must keep it the
         // nearest concept, whatever identifier sits beside it.
         let rules = vec![
@@ -550,7 +550,7 @@ mod tests {
         // `var doubled = eval("total * 2")`: the construct contains the eval concept's
         // territory, which can sit a few dozen bits nearer than the fired var rule — a
         // statistical tie, not evidence of an incidental hit. The fired rule must lose
-        // only past the 3σ tie band (LINTER.md, "Hv concept gate").
+        // only past the 3σ tie band (native/architecture.dx, "Hv concept gate").
         let rules = vec![
             (
                 "no_var_declaration".to_string(),

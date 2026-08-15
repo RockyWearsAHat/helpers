@@ -7,20 +7,11 @@
 ## What Helpers gives an agent
 
 A persistent toolset that helps you write **longer, more accurate, better code**:
-
-- **Project index** — a cheap, static map of the repo (files, symbols, reference
-  graph, ranked) so you orient in one call instead of grepping or reading widely
-  (`index_project`, `project_map`, `lookup`). Shareable across projects as a `.dxbundle`.
-- **Knowledge** — a knowledge index/cache so you recall durable facts and community
-  knowledge instead of re-searching (`search_knowledge_index`, `search_knowledge_cache`).
-- **Research** — web search + page scraping gated behind the index and knowledge
-  (`search_web`, `scrape_webpage`).
-- **Quality gates** — `strict_lint` after edits, `checkpoint` for disciplined commits.
-- **Project flows** — register a recurring multi-step task once as a named tool any
-  agent can call (`register_workspace_tool`, `list_workspace_tools`), scoped to the
-  project — turning context repetition into one tool call.
-- **CS A+ grading** — objectively grade a CS2420/CS3500 project and drive it to an A+
-  (`helpers grade`).
+project index (`index_project`, `project_map`, `lookup`), knowledge memory, gated
+web research, quality gates (`lint`, `checkpoint`), reusable project flows
+(`register_workspace_tool`), and CS2420/CS3500-grade linting. Full tool list and
+what each does: `helpers.dx` (read via the dx MCP tools, e.g. `dx_read`, or
+`dx read helpers.dx`).
 
 ## Install (any agent)
 
@@ -32,19 +23,21 @@ A persistent toolset that helps you write **longer, more accurate, better code**
 ```
 
 `helpers install` registers the MCP server and installs agent-native config
-(Claude: CLAUDE.md core block, skills, slash commands; Copilot: agents/instructions/skills).
+(Claude: CORE.md block, skills, slash commands; Copilot: agents/instructions/skills;
+Codex too).
 
 ### Manual MCP registration
 
-The server is plain stdio MCP — register it however your agent expects:
+The server is plain stdio MCP, served directly by the native binary (no Node) —
+register it however your agent expects:
 
 ```sh
 # Claude Code
-claude mcp add -s user helpers -- node /absolute/path/to/helpers-server
+claude mcp add -s user helpers -- /absolute/path/to/helpers-native mcp
 
 # Generic mcp.json
-{ "mcpServers": { "helpers": { "command": "node",
-  "args": ["/absolute/path/to/helpers-server"] } } }
+{ "mcpServers": { "helpers": { "command": "/absolute/path/to/helpers-native",
+  "args": ["mcp"] } } }
 ```
 
 ## Control & toggling (live — no restart)
@@ -63,18 +56,8 @@ Tool state lives in `~/.config/helpers-server/tools.json` and is re-read by the
 running server on every request, so toggles apply immediately. A disabled tool can be
 overridden for a single call with `{ "force": true }`.
 
-## Fast startup (auto-managed background server)
-
-`helpers install` registers a tiny **C launcher** (`helpers-mcp`) instead of launching Node
-directly. It starts in ~1ms and connects to a background server
-(`helpers-serverd.js`) that stays resident, so sessions start fast instead of
-paying cold Node startup. It is fully automatic: the server starts on demand,
-idle-exits after ~15 min, is per-workspace (keyed by cwd + Helpers env), and re-reads
-tool state per request so `helpers` toggles stay live.
-
-If the server isn't instantly ready — or there's no C compiler — the launcher falls
-back to running Node directly within ~2s, so it's always reliable and never worse than
-plain Node. Controls: `helpers daemon status`, `helpers daemon restart`, `helpers build`.
+The server is one compiled Rust binary with ~1ms cold start (no Node, no daemon needed);
+architecture detail: `helpers.dx`.
 
 ## Notes for agents
 
@@ -89,4 +72,5 @@ plain Node. Controls: `helpers daemon status`, `helpers daemon restart`, `helper
   anything that no longer matches the code. The next agent should read the docs cold and know
   exactly where the project stands. (The always-on rule lives in `agent-config/CORE.md`,
   Working discipline #7 — edit it there, never in the generated per-agent copies.)
-- See `README.md` for full per-tool docs and packaging.
+- Full docs (every MCP tool, CLI command, architecture, dev/release process): see
+  `helpers.dx` — read via the dx MCP tools (`dx_read`) or `dx read helpers.dx`.

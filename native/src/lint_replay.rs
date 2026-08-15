@@ -1,4 +1,4 @@
-//! `lint_replay` — the whole-project report replay (LINTER.md, "An unchanged project
+//! `lint_replay` — the whole-project report replay (native/architecture.dx, "An unchanged project
 //! replays the whole report").
 //!
 //! One WITNESS — a fold of every input's `(mtime, len)` state — decides between "return

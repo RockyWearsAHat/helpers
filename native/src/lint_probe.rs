@@ -19,7 +19,7 @@
 //!     whose concept it means ([`understand`]). Delete the corpus and every probe goes dark: the
 //!     checks are learned, only the recognition is programmed.
 //!
-//! This is the bridge LINTER.md calls "Rules from understanding — the probe bridge": dictionary +
+//! This is the bridge native/architecture.dx calls "Rules from understanding — the probe bridge": dictionary +
 //! language understanding → read a rule described in prose → enforce it, with no pre-labelled
 //! exemplars of bad code required. Exemplars would sharpen a probe; understanding of the
 //! description is what activates it.
@@ -497,7 +497,7 @@ fn duplicated_code(root: tree_sitter::Node, src: &[u8], hits: &mut Vec<usize>) {
 /// SEPARATES: two words with a shared stem (`ignore`/`ignored`, `swallow`/`swallowed`) land close,
 /// unrelated words sit at the noise floor. The dictionary MEANING network is the comprehension
 /// backbone elsewhere, but its `related()` proximity is measured NOT to separate disapproval from
-/// neutral vocabulary (LINTER.md) — every concept scored ~1.0 through it — so binding a principle
+/// neutral vocabulary (native/architecture.dx) — every concept scored ~1.0 through it — so binding a principle
 /// to a probe by meaning-synonym is a documented NEXT STEP that waits on a separating meaning
 /// metric, not this cycle's mechanism.
 fn word_vector(word: &str) -> Option<Hv> {

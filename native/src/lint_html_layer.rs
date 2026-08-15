@@ -1,6 +1,6 @@
 //! The HTML layer — HTML constructs as orthogonal ISM states, keyed STRUCTURALLY from the markup.
 //!
-//! Contract: `LINTER.md` → north-star section → "The HTML layer — structural construct-keying that
+//! Contract: `native/history.dx` → north-star section → "The HTML layer — structural construct-keying that
 //! unblocks graduation". This is the first curriculum layer above the proven English bedrock, and its
 //! one job is to supply the per-construct SUBJECT the English dictionary cannot key, so real HTML
 //! construct truths ("`<strong>` means importance") corroborate ONLY from their own construct's prose.
@@ -11,7 +11,7 @@
 //! subject-GATED witness stream to the frozen [`crate::lint_ism::graduate`]. Every English judgement
 //! and the ≥15-witness law stay exactly the engine's.
 //!
-//! Why structural keying is the fix (measured, see `examples/htmlgrad.rs` and the LINTER.md
+//! Why structural keying is the fix (measured, see `examples/htmlgrad.rs` and the native/architecture.dx
 //! subsection): the dictionary knows `strong` only as an adjective, `em` as "them", and does not know
 //! `b`/`dfn`/`kbd` at all, so different constructs collapse onto shared English predicates and a
 //! `<em>` sentence corroborates a `<strong>` importance-truth. The subject key — page-of-origin, an
@@ -38,7 +38,7 @@ use crate::lint_ism::{graduate, Candidate, Verdict};
 /// ids are URL-fragment slugs the page publishes for itself (`<h2 id="examples">`), so excluding by
 /// them is a STRUCTURAL page-role filter, never a judgement of construct MEANING. The measurement
 /// showed this prose asserts sibling constructs and example content that trip false contradictions
-/// (LINTER.md HTML-layer subsection). INTERIM, like the other structural windows in this file — the
+/// (native/architecture.dx HTML-layer subsection). INTERIM, like the other structural windows in this file — the
 /// principled end state reads the section's role rather than matching its slug.
 const NON_GOVERNING_ANCHORS: &[&str] =
     &["try_it", "examples", "technical_summary", "specifications", "browser_compatibility", "see_also", "feedback"];
@@ -427,7 +427,7 @@ fn paragraphs(region: &str) -> Vec<String> {
 
 // ── PASS 37 — the attribute dimension: three attestation SHAPES the reader learns ────────────────
 //
-// Contract: LINTER.md → "COMPLETION PASS 37", implementation subsection. Every judgement below is
+// Contract: native/history.dx → "COMPLETION PASS 37", implementation subsection. Every judgement below is
 // an existing frozen faculty (the English prohibition read) or the one-hand-datum status join
 // ([`crate::lint_attest::class_carries_prohibition`]) — never an icon list, class list, or word
 // list. All three readers are structural page readers: they run over the PRE-chrome-strip body
@@ -666,10 +666,10 @@ fn expand_numeric_span(hosts: &mut Vec<String>) {
     }
 }
 
-/// The MEMBER concept axis (LINTER.md PASS 41) — the owner's named seeds for "an element's
+/// The MEMBER concept axis (native/history.dx PASS 41) — the owner's named seeds for "an element's
 /// property": a prohibition-status section headed by one of these lists members, never elements.
 const MEMBER_ANCHORS: &[&str] = &["attribute", "property"];
-/// The CONSTRUCT concept axis (LINTER.md PASS 41) — the owner's named seeds for "a language
+/// The CONSTRUCT concept axis (native/history.dx PASS 41) — the owner's named seeds for "a language
 /// construct": a section headed by one of these (or by a noun the net cannot key) lists elements.
 const CONSTRUCT_ANCHORS: &[&str] = &["element", "tag", "feature"];
 
@@ -1124,7 +1124,7 @@ pub fn graduate_construct(
     (graduate(m, en, &candidate, gated.iter().copied()), gated.len())
 }
 
-// Tests prove the MECHANISM with ZERO embedded HTML knowledge (per the LINTER.md invariant: no real
+// Tests prove the MECHANISM with ZERO embedded HTML knowledge (per the native/architecture.dx invariant: no real
 // construct names or meanings anywhere, including tests). Subjects are ABSTRACT opaque keys
 // (`alpha`/`beta`/`gamma`) and prose is SYNTHETIC (a construct "conveys a widget property", a sibling
 // "marks a gadget region"). What is under test is page-of-origin subject-keying, the chrome/sibling/

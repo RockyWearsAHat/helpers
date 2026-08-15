@@ -73,7 +73,7 @@ pub fn read_language(
     // read first must not starve a richer one (measured: MDN filled all 4,000 binding slots
     // and ESLint's 300 rule pages bound NOTHING — read and silently discarded). Page prose
     // feeds the reader the same way, one page per source per turn.
-    // The curriculum gate (LINTER.md, "Reading a page is UNDERSTANDING"): without the trained
+    // The curriculum gate (native/architecture.dx, "Reading a page is UNDERSTANDING"): without the trained
     // character brain there is nothing that can READ a served page — the language refuses to
     // train (the caller reports it as not learned, asking by name), and no hand parser ever
     // steps in.
@@ -88,7 +88,7 @@ pub fn read_language(
     let mut reader = Reader::new();
     let mut per_source: Vec<Vec<(String, String, String, String)>> = Vec::new();
     // Per page: (raw body, extracted prose) — the reader reads the page RAW (tags as
-    // vocabulary, LINTER.md "Markup second"); typographic tallies read the prose, where a
+    // vocabulary, native/architecture.dx "Markup second"); typographic tallies read the prose, where a
     // dotted token is a filename claim and not an `href` artifact.
     let mut prose_queues: Vec<Vec<(String, String)>> = Vec::new();
     // Languages this run knows by NAME — the training language plus everything registered —
@@ -151,7 +151,7 @@ pub fn read_language(
                 // yet, and the claims-only gate let `/vex/…` pages mint into zim's module
                 // (the PASS 36 census cross-contamination defect). A page attributing to
                 // NOTHING still binds to the reading language — a per-language source's
-                // pages attribute to it or to nothing (LINTER.md, "A site is a source").
+                // pages attribute to it or to nothing (native/architecture.dx, "A site is a source").
                 let effective = if hint.is_empty() { page_lang.clone() } else { hint };
                 let named = effective.trim().to_lowercase();
                 if crate::lint_train::foreign_example(lang, &effective)
@@ -179,7 +179,7 @@ pub fn read_language(
                 if !prose.trim().is_empty() {
                     // The page is fed to the reader AS SERVED — one token stream, markup
                     // included; ubiquity strips the markup of meaning-weight while the
-                    // reading keeps its role (LINTER.md, "Markup second").
+                    // reading keeps its role (native/architecture.dx, "Markup second").
                     reader.learn_span(&raw);
                     crate::lint_read::tally_dotted_tokens(&prose, &mut dotted);
                     crate::lint_read::tally_name_aliases(lang, &prose, &mut dotted);
@@ -246,7 +246,7 @@ pub fn read_language(
         .map(|(_, _, _, code)| crate::lint_toolchain::check(lang, code, data_root))
         .collect();
     let mut flagged: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    // Honest labels (LINTER.md, "Honest grounding labels"): Flagged is reality's own verdict
+    // Honest labels (native/architecture.dx, "Honest grounding labels"): Flagged is reality's own verdict
     // and labels bad; Clean only says "parses", so it labels good ONLY as the fix-sibling of
     // a flagged block in its own section (violation first, fix after — the documented
     // convention). Every other clean unit trains nothing: it stays reference material, so
@@ -273,7 +273,7 @@ pub fn read_language(
                     // so its prose is genuine endorsement register — prototype food.
                     builder.accumulate(prose, false);
                 } else {
-                    // Every other clean unit is EXPOSURE only (LINTER.md): reality the
+                    // Every other clean unit is EXPOSURE only (native/architecture.dx): reality the
                     // words stood next to, never an endorsement label.
                     builder.tally_exposure(prose);
                 }
@@ -327,7 +327,7 @@ pub fn read_language(
         if code.len() < 3 {
             // PASS 36 — the recall census: a BLOCKLESS prohibition section (heading + forbidding
             // prose, zero example block — the MDN-eval/`flare` shape) used to vanish exactly here,
-            // because a unit with no code can never form a binding. It stays unmintable (LINTER.md,
+            // because a unit with no code can never form a binding. It stays unmintable (native/architecture.dx,
             // "A blockless section cannot teach law yet"), but the drop is now a NAMED withhold row
             // in the read memory, funneled into the module's conservation ledger by the train.
             // Signal-gated by the frozen English (a stated prohibition, never a word list) so
@@ -356,14 +356,14 @@ pub fn read_language(
         }
     }
     // An UNREADY classifier is still kept once it has READ: its reader's frequencies feed
-    // the dictionary-negation cold floor (LINTER.md, "The cold floor"), which is how an
+    // the dictionary-negation cold floor (native/architecture.dx, "The cold floor"), which is how an
     // ungroundable language on a fresh machine mints its first overt prohibitions.
     let keep = polarity.is_ready() || polarity.reader().total_read() > 0;
     Memory { bindings, reference, polarity: keep.then_some(polarity), pages_read, extensions, flagged, withheld, facts }
 }
 
 /// Ensure a SITE source's page cache exists (crawling when allowed) and return the languages
-/// its pages attribute to — the discovery step of "A site is a source" (LINTER.md). Replay-
+/// its pages attribute to — the discovery step of "A site is a source" (native/architecture.dx). Replay-
 /// only when the cache is current; offline+cold yields nothing, honestly.
 #[cfg(feature = "crawl")]
 pub(crate) fn ensure_site_cache(
@@ -387,7 +387,7 @@ pub(crate) fn ensure_site_cache(
     // Persist the AUTHORITATIVE attribution: discovery is the only place that sees the full
     // language universe (registered + this project's own invented languages), so `attribute_page`
     // can resolve a `/flowlang/` path segment here. [`cached_site_langs`] then just reads this
-    // sidecar instead of re-attributing blind (LINTER.md, "A site is a source").
+    // sidecar instead of re-attributing blind (native/architecture.dx, "A site is a source").
     write_site_langs_sidecar(&src.tool, &langs);
     langs
 }
@@ -482,7 +482,7 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
 // ── Per-source crawl cache (one network read per machine per source) ──────────
 
 /// One documentation source cached RAW — per page, its URL and its body EXACTLY AS SERVED
-/// (LINTER.md, "Pages are cached RAW"): units are formed at READ time by the char substrate's
+/// (native/architecture.dx, "Pages are cached RAW"): units are formed at READ time by the char substrate's
 /// page reading, so a smarter reader re-reads the same cache without the network. Cached
 /// once per machine keyed by the toolchain version whose docs these are, so a source shared by
 /// two languages (TypeScript ⊇ JavaScript both read MDN) or re-read after a `TRAIN_VERSION`
@@ -492,7 +492,7 @@ pub(crate) fn cached_site_langs(tool: &str) -> std::collections::HashSet<String>
 struct CrawledSource {
     version: String,
     /// Unix seconds of the crawl — setup re-validates against the live pages when this is
-    /// older than [`CRAWL_MAX_AGE`] (LINTER.md, "Setup guarantees the documentation is
+    /// older than [`CRAWL_MAX_AGE`] (native/architecture.dx, "Setup guarantees the documentation is
     /// CURRENT").
     crawled_at: u64,
     pages: Vec<CrawledPage>,
@@ -561,7 +561,7 @@ struct CrawledPage {
     fp: u64,
 }
 
-/// The language `url`'s page documents, resolved as LINTER.md's "A site is a source" orders:
+/// The language `url`'s page documents, resolved as native/architecture.dx's "A site is a source" orders:
 /// the majority language among the page's own block hints, else the first URL path segment
 /// that resolves to a known language (or names one in `extra_langs` — languages this run
 /// already knows by name, e.g. the project's own), else a host label. "" when nothing
@@ -621,12 +621,12 @@ pub(crate) fn attribute_page(
 
 /// READ one cached raw page into `(page prose, units, withheld)` — units as
 /// `(slug, governing prose, code, language hint)`. This is the whole read-time unit former
-/// (LINTER.md, "Reading a page is UNDERSTANDING"): fetch furniture is dropped, then the char
+/// (native/architecture.dx, "Reading a page is UNDERSTANDING"): fetch furniture is dropped, then the char
 /// substrate's page reading ([`crate::lint_graph::read_page`]) forms units — code is what the
 /// meaning network and learned structural roles read as construct, boundaries are heading roles
 /// and title-shaped gaps, and no tag name is ever consulted. Slugs come from
 /// author marks (a per-rule URL slug, the nearest `id="…"` anchor) with the prose itself as
-/// the last resort, exactly as before. Blockless sections still form NO units (LINTER.md,
+/// the last resort, exactly as before. Blockless sections still form NO units (native/architecture.dx,
 /// "A blockless section cannot teach law yet") — but PASS 36 (the recall census) makes that
 /// pinned hole a NAMED drop instead of a silent one: this is exactly where the `flare` shape
 /// (heading + forbidding prose, zero `<pre>` example block) used to vanish, so each anchored
@@ -748,7 +748,7 @@ fn crawled_source(
     // Site caches (tool "site-…") are language-independent: keyed by TRAIN_VERSION, never a
     // toolchain version, so every language trained from the site replays ONE crawl. The
     // cache stores RAW pages, so a unit-former change never needs a recrawl — re-reading
-    // the same bytes with a smarter reader is the design (LINTER.md, "Pages are cached RAW").
+    // the same bytes with a smarter reader is the design (native/architecture.dx, "Pages are cached RAW").
     let cache_version = if src.tool.starts_with("site-") {
         Some(crate::lint_train::train_version())
     } else {
@@ -786,7 +786,7 @@ fn read_crawl_cache(path: &std::path::Path) -> Option<CrawledSource> {
 }
 
 /// Persist a source's crawled raw pages with the crawl timestamp (see [`CrawledSource`]);
-/// removes the JSON-era twin so exactly one copy lives on disk (LINTER.md, "Save"). Refuses a
+/// removes the JSON-era twin so exactly one copy lives on disk (native/architecture.dx, "Save"). Refuses a
 /// train-ordinal regression on the `TRAIN_VERSION`-stamped site caches
 /// ([`crate::lint_train::stamp_regression`] — an outlived process keeps the newer store);
 /// toolchain-stamped caches carry no ordinal and are untouched.
@@ -1041,7 +1041,7 @@ pub fn document_polarity() -> Option<std::sync::Arc<crate::lint_read::Polarity>>
 
 /// The classifier an ungroundable language reads through: the machine's shared store — the
 /// self-bootstrapped product of the dictionary's meaning network plus grounded web reading
-/// (LINTER.md, "Honest grounding labels"). There is NO committed classifier artifact: the
+/// (native/architecture.dx, "Honest grounding labels"). There is NO committed classifier artifact: the
 /// system starts from the dictionary and the docs, grounds its own labels against
 /// toolchains, and shares the best-read classifier through this store and through
 /// per-language registry modules.
@@ -1085,7 +1085,7 @@ fn transferred_polarity() -> Option<std::sync::Arc<crate::lint_read::Polarity>> 
 /// per slug. Returns each rule with its source url for citation. Pure over the memory — offline,
 /// deterministic, testable.
 ///
-/// The mint gate is UNDERSTANDING, not register (LINTER.md, "Entry gates"): a binding becomes a
+/// The mint gate is UNDERSTANDING, not register (native/architecture.dx, "Entry gates"): a binding becomes a
 /// rule only when some sentence of its governing prose STATES A PROHIBITION through the meaning
 /// network ([`crate::lint_english::English::states_prohibition`]) — a negation operator commanding
 /// a sentence ("Never use X") or a word naming disapproval of the construct ("X is incorrect").
@@ -1201,7 +1201,7 @@ pub fn rules_from_memory(
                             <= polarity.negation_bits(&b.prose))
             })
             .map(|nb| nb.code.clone())
-            // words → sentences → ORDER (LINTER.md): endorsement needs grounding only
+            // words → sentences → ORDER (native/architecture.dx): endorsement needs grounding only
             // reality can give, so an UNREADY classifier cannot find the fix by reading —
             // there, document order is the convention (violation first, fix after). The
             // reading is RELATIVE either way: the fix must read at most half as negated as
@@ -1284,7 +1284,7 @@ pub fn rules_from_memory(
     (out, withheld)
 }
 
-/// Grounding probes per crawl — a runaway safety valve, not a working limit (LINTER.md: the
+/// Grounding probes per crawl — a runaway safety valve, not a working limit (native/architecture.dx: the
 /// whole in-scope site is read). Probes run in parallel; 500 covers every real docs site's
 /// example diversity while keeping check-mode spawns bounded.
 #[cfg(feature = "crawl")]
@@ -1492,7 +1492,7 @@ fn remember_source(lang: &str, src: &DocsSource) {
 
 /// VERIFY 100% of `lang`'s page inventory against the live sites and refresh what moved —
 /// the setup-time guarantee that modules always train on the most recent documentation
-/// (LINTER.md, "Save"). Every known page gets one conditional request (`If-Modified-Since` →
+/// (native/architecture.dx, "Save"). Every known page gets one conditional request (`If-Modified-Since` →
 /// 304 proves it current; no header → the refetched body's extraction fingerprint decides);
 /// changed pages re-extract and their links discover NEW pages (an unchanged page's links are
 /// already in the inventory, so coverage stays complete without refetching bodies); 404/410
@@ -1616,7 +1616,7 @@ fn verify_inventory(src: &DocsSource, cached: Vec<CrawledPage>) -> (Vec<CrawledP
     (out, changed)
 }
 
-/// Register `url` as `lang`'s official documentation (LINTER.md, "Online to set up, offline
+/// Register `url` as `lang`'s official documentation (native/architecture.dx, "Online to set up, offline
 /// to run"). A data write into the discovery cache, overwriting any failed discovery's
 /// negative marker, so every later train/lint resolves the language's docs to this URL.
 /// Offline-safe; the caller invalidates the language's model stamp and TRAINING learns it.
@@ -1630,7 +1630,7 @@ pub fn add_docs_source(lang: &str, url: &str) -> DocsSource {
         .to_string();
     let src = DocsSource { url: url.to_string(), crawl: true, tool };
     remember_source(lang, &src);
-    // The manifest is the user-facing record (LINTER.md, "The language manifest") — the
+    // The manifest is the user-facing record (native/architecture.dx, "The language manifest") — the
     // legacy store above stays only as migration input for older machines.
     crate::lint_train::manifest_set(lang, vec![url.to_string()]);
     src
@@ -1752,7 +1752,7 @@ mod tests {
     #[cfg(feature = "crawl")]
     fn a_blockless_section_forms_no_unit_until_the_classifier_can_read_it() {
         // MDN's "Never use direct eval()!" shape: a heading anchor, prose and bullets, zero
-        // code register. LEAD units for such sections were built and MEASURED (LINTER.md, "A
+        // code register. LEAD units for such sections were built and MEASURED (native/architecture.dx, "A
         // blockless section cannot teach law yet"): under the span classifier they minted
         // only error-register junk while the prohibition they were built for still failed
         // its span — so blockless sections deliberately form no unit until the per-token
@@ -1896,7 +1896,7 @@ mod transfer_probe {
     /// page caches: for every registered source, the same reading (prose learned by a
     /// [`Reader`]) and the same typographic tally the live pipeline uses, head-filtered per
     /// language — learned data end to end, committed so cold machines are wired before their
-    /// first training run (LINTER.md, "File types are learned by reading"). Run after reading
+    /// first training run (native/architecture.dx, "File types are learned by reading"). Run after reading
     /// or tally changes: `cargo test --release generate_extensions_bootstrap -- --ignored`
     #[test]
     #[ignore = "dev tool: regenerates the committed extensions bootstrap from cached crawls"]
@@ -1916,7 +1916,7 @@ mod transfer_probe {
             };
             let Some(cached) = read_crawl_cache(&crawl_cache_path(tool)) else { continue };
             // Raw cache: units and prose are derived at read time through the substrates
-            // (LINTER.md, "Pages are cached RAW"). The extension tally reads the SAME prose
+            // (native/architecture.dx, "Pages are cached RAW"). The extension tally reads the SAME prose
             // and unit code the live pipeline reads.
             let Some(brain) = crate::lint_char::brain() else {
                 continue;
