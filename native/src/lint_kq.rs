@@ -1,4 +1,4 @@
-//! `lint_kq` — the kqueue replay tier (LINTER.md, "The kqueue tier").
+//! `lint_kq` — the kqueue replay tier (native/architecture.dx, "The kqueue tier").
 //!
 //! The stat sweep proves currency in milliseconds; this tier proves it in MICROSECONDS by
 //! holding an `EVFILT_VNODE` watch (an `O_EVTONLY` fd) on every input and asking the kernel
@@ -83,7 +83,7 @@ pub fn rearm_fired(_root: &Path) -> bool {
 }
 
 /// The paths whose vnodes fired since the last arm (drained now, kernel-synchronous), for
-/// the INCREMENTAL tier (LINTER.md): `None` when there is no complete watch set to vouch —
+/// the INCREMENTAL tier (native/architecture.dx): `None` when there is no complete watch set to vouch —
 /// only an armed daemon may treat "not fired" as "provably unchanged".
 #[cfg(target_os = "macos")]
 pub fn fired_paths(root: &Path) -> Option<Vec<PathBuf>> {

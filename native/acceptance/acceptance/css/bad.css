@@ -1,0 +1,25 @@
+/* Planted: every enforced css construct, one per line. */
+.x221 { -moz-float-edge: content-box; }
+.x767 { -moz-force-broken-image-icon: 1; }
+.x607 { -moz-user-focus: ignore; }
+.x130 { -moz-user-input: none; }
+.x831 { box-align: start; }
+.x253 { box-direction: reverse; }
+.x773 { box-flex-group: 2; }
+.x653 { box-lines: multiple; }
+.x64 { box-ordinal-group: 3; }
+.x811 { box-orient: horizontal; }
+.x235 { box-pack: center; }
+.x733 { page-break-after: always; }
+.x972 { page-break-before: avoid; }
+.x141 { page-break-inside: avoid; }
+.x318 { text-decoration-skip: objects; }
+.x578 { user-modify: read-only; }
+img:-moz-broken { display: none; }
+:host-context(.dark) { color: white; }
+button::-moz-focus-inner { border: 0; }
+meter::-webkit-meter-bar { border: 0; }
+@media (-webkit-animation) { .y728 { color: red; } }
+@media (-webkit-transition) { .y415 { color: red; } }
+@media (maction) { .y495 { color: red; } }
+@media (block-all-mixed-content) { .y856 { color: red; } }

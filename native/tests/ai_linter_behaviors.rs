@@ -192,7 +192,7 @@ fn planted_violations_are_flagged_exactly_no_more_no_less() {
     );
 }
 
-/// The planted matrix's alias + universe dimensions (LINTER.md ledger #16 + evidence
+/// The planted matrix's alias + universe dimensions (native/architecture.dx ledger #16 + evidence
 /// hierarchy), end to end: the law file is named by extension alias (`js.md`) and must govern
 /// its canonical language (javascript), and each row plants its violation in a different text
 /// universe — code, a comment, a string interior. Exact-count contract like the matrix above;
@@ -305,7 +305,7 @@ fn every_language_the_walker_names_enforces_project_law() {
 /// An `any.md` rule that names no language is the project's law for EVERY language present —
 /// grammar languages (python, javascript) and grammarless made-up ones alike. And a law whose
 /// examples differ only in punctuation (no watchable word) is REPORTED as not yet enforceable
-/// for a grammarless language — never silently skipped, never a junk detector (LINTER.md,
+/// for a grammarless language — never silently skipped, never a junk detector (native/architecture.dx,
 /// open problems: values and operators are semantics; the AST diff is the path that carries
 /// them, and qlang has no grammar).
 #[test]
@@ -565,7 +565,7 @@ fn serve_prose_only_docs() -> String {
     format!("http://127.0.0.1:{port}/")
 }
 
-/// Reading IS the module (LINTER.md): a docs site with prose but ZERO code examples still
+/// Reading IS the module (native/architecture.dx): a docs site with prose but ZERO code examples still
 /// sets the language up — the trained module may hold no prohibition rules, but "not yet set
 /// up" means COULD NOT READ ANYTHING, never "read it and found nothing to ban". Measured
 /// before this held: json.org (its grammar is diagrams, no code blocks) reported
@@ -608,7 +608,7 @@ fn a_prose_only_docs_site_still_sets_the_language_up() {
     );
 }
 
-/// Warm runs REPLAY per-file verdicts (LINTER.md, "The live path"): the second run of an
+/// Warm runs REPLAY per-file verdicts (native/architecture.dx, "The live path"): the second run of an
 /// unchanged project reports identical findings out of the verdict cache, and editing a file
 /// re-lints exactly that file — the moved violation is found at its new line.
 #[test]
@@ -640,7 +640,7 @@ fn warm_runs_replay_verdicts_and_edits_relint() {
     );
 }
 
-/// A legacy JSON module cache MIGRATES on first touch (LINTER.md, "Save"): the offline run
+/// A legacy JSON module cache MIGRATES on first touch (native/architecture.dx, "Save"): the offline run
 /// loads it, saves the `HLM1` container beside it, deletes the JSON — and the loaded engine
 /// behaves identically: the planted violation still fires from the migrated module alone.
 #[test]
@@ -1178,7 +1178,7 @@ fn serve_diverse_vexlang_site() -> String {
             } else if req.starts_with("GET /flare") {
                 // BLOCKLESS prohibition SHAPE (the MDN-eval warning): heading + prose,
                 // zero <pre>. Learns AND fires through the PASS-36 triple-conjunction gate
-                // (LINTER.md failure-ledger re-land addendum, 2026-07-18).
+                // (native/architecture.dx failure-ledger re-land addendum, 2026-07-18).
                 "<html><body><h1>flare()</h1>\
                  <h2 id=\"never_use_flare\">Never use flare!</h2>\
                  <p>Never use the flare statement anywhere; it is dangerous and will be removed.</p>\
@@ -1281,7 +1281,7 @@ fn a_diverse_real_shaped_site_exercises_every_reading_stage() {
         "error-page shape: a punctuation-only diff compiles no detector:\n{verdict}"
     );
     // STAGE blockless prohibition (the MDN-eval shape): LEARNS AND FIRES (PASS 36 re-land,
-    // LINTER.md failure-ledger addendum 2026-07-18) — minted through the triple-conjunction
+    // native/architecture.dx failure-ledger addendum 2026-07-18) — minted through the triple-conjunction
     // gate (frozen-English forbidding sentence + a construct common English cannot account
     // for + the section's own anchor slug naming it), fired at the LOW tier citing the docs'
     // own words. The clean file must stay silent (asserted by the zero-FP stage below).

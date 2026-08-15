@@ -2,7 +2,7 @@
 //! examples into a generalized sub-tree pattern via `bad ∧ ¬good` tree-diff, and matching it by
 //! exact sub-tree containment with variable binding. Operations/keywords/operators stay exact;
 //! variables become bound wildcards; literals become typed wildcards. Deterministic — no
-//! statistics, no floats. Theory and failure ledger: `LINTER.md`.
+//! statistics, no floats. Theory and failure ledger: `native/architecture.dx`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -169,7 +169,7 @@ fn novel_root<'t>(
     // A call is atomic — its callee IS the rule's identity (`range`, `re.sub`); never strip it by
     // descending into its arguments. So stop at a call even if the change is in an argument.
     let atomic = matches!(node.kind(), "call" | "call_expression" | "macro_invocation");
-    // A CHILDLESS novel child never becomes the root (LINTER.md, "Compile"): a bare leaf
+    // A CHILDLESS novel child never becomes the root (native/architecture.dx, "Compile"): a bare leaf
     // is a degenerate pattern by definition, and stripping its context is what turned
     // `items=[]`-as-default-parameter into "any empty list literal" — this node is the
     // smallest construct that still says WHERE the leaf lives.
@@ -511,7 +511,7 @@ impl RulePattern {
     }
 }
 
-// ── HLM1 binary codec (LINTER.md, "Save") — the pattern tree is pure structure/text. ──
+// ── HLM1 binary codec (native/architecture.dx, "Save") — the pattern tree is pure structure/text. ──
 
 impl crate::lint_codec::Bin for Pat {
     fn enc(&self, e: &mut crate::lint_codec::Enc) {

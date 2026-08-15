@@ -1,0 +1,442 @@
+{
+ "uses-unescape": {
+  "fire": "unescape",
+  "line": 4
+ },
+ "uses-arguments.callee": {
+  "fire": "arguments.callee",
+  "line": 5
+ },
+ "uses-.__defineGetter__": {
+  "fire": ".__defineGetter__",
+  "line": 6
+ },
+ "uses-.__defineSetter__": {
+  "fire": ".__defineSetter__",
+  "line": 7
+ },
+ "uses-.__lookupGetter__": {
+  "fire": ".__lookupGetter__",
+  "line": 8
+ },
+ "uses-.__lookupSetter__": {
+  "fire": ".__lookupSetter__",
+  "line": 9
+ },
+ "uses-RegExp.input": {
+  "fire": "RegExp.input",
+  "line": 10
+ },
+ "uses-RegExp.lastMatch": {
+  "fire": "RegExp.lastMatch",
+  "line": 11
+ },
+ "uses-RegExp.lastParen": {
+  "fire": "RegExp.lastParen",
+  "line": 12
+ },
+ "uses-RegExp.leftContext": {
+  "fire": "RegExp.leftContext",
+  "line": 13
+ },
+ "uses-RegExp.rightContext": {
+  "fire": "RegExp.rightContext",
+  "line": 14
+ },
+ "uses-.compile": {
+  "fire": ".compile",
+  "line": 15
+ },
+ "uses-.substr": {
+  "fire": ".substr",
+  "line": 16
+ },
+ "uses-.anchor": {
+  "fire": ".anchor",
+  "line": 17
+ },
+ "uses-.big": {
+  "fire": ".big",
+  "line": 18
+ },
+ "uses-.blink": {
+  "fire": ".blink",
+  "line": 19
+ },
+ "uses-.bold": {
+  "fire": ".bold",
+  "line": 20
+ },
+ "uses-.fixed": {
+  "fire": ".fixed",
+  "line": 21
+ },
+ "uses-.fontcolor": {
+  "fire": ".fontcolor",
+  "line": 22
+ },
+ "uses-.fontsize": {
+  "fire": ".fontsize",
+  "line": 23
+ },
+ "uses-.italics": {
+  "fire": ".italics",
+  "line": 24
+ },
+ "uses-.link": {
+  "fire": ".link",
+  "line": 25
+ },
+ "uses-.small": {
+  "fire": ".small",
+  "line": 26
+ },
+ "uses-.strike": {
+  "fire": ".strike",
+  "line": 27
+ },
+ "uses-.sub": {
+  "fire": ".sub",
+  "line": 28
+ },
+ "uses-.sup": {
+  "fire": ".sup",
+  "line": 29
+ },
+ "uses-.getYear": {
+  "fire": ".getYear",
+  "line": 30
+ },
+ "uses-.setYear": {
+  "fire": ".setYear",
+  "line": 31
+ },
+ "uses-CSSPositionValue": {
+  "fire": "CSSPositionValue",
+  "line": 32
+ },
+ "uses-HMDVRDevice": {
+  "fire": "HMDVRDevice",
+  "line": 33
+ },
+ "uses-SpeechGrammarList": {
+  "fire": "SpeechGrammarList",
+  "line": 34
+ },
+ "uses-document.execCommand": {
+  "fire": "document.execCommand",
+  "line": 35
+ },
+ "uses-document.fullscreen": {
+  "fire": "document.fullscreen",
+  "line": 36
+ },
+ "uses-window.sharedStorage": {
+  "fire": "window.sharedStorage",
+  "line": 37
+ },
+ "uses-navigator.getUserMedia": {
+  "fire": "navigator.getUserMedia",
+  "line": 38
+ },
+ "uses-document.requestStorageAccessFor": {
+  "fire": "document.requestStorageAccessFor",
+  "line": 39
+ },
+ "uses-document.browsingTopics": {
+  "fire": "document.browsingTopics",
+  "line": 40
+ },
+ "uses-document.write": {
+  "fire": "document.write",
+  "line": 41
+ },
+ "uses-document.writeln": {
+  "fire": "document.writeln",
+  "line": 42
+ },
+ "uses-vrDisplay.requestPresent": {
+  "fire": "vrDisplay.requestPresent",
+  "line": 43
+ },
+ "uses-vrDisplay.requestAnimationFrame": {
+  "fire": "vrDisplay.requestAnimationFrame",
+  "line": 44
+ },
+ "uses-vrDisplay.getFrameData": {
+  "fire": "vrDisplay.getFrameData",
+  "line": 45
+ },
+ "uses-vrDisplay.submitFrame": {
+  "fire": "vrDisplay.submitFrame",
+  "line": 46
+ },
+ "uses-navigator.activeVRDisplays": {
+  "fire": "navigator.activeVRDisplays",
+  "line": 47
+ },
+ "uses-vrDisplay.isPresenting": {
+  "fire": "vrDisplay.isPresenting",
+  "line": 48
+ },
+ "uses-cssValue.cssText": {
+  "fire": "cssValue.cssText",
+  "line": 49
+ },
+ "uses-cssStyleSheet.addRule": {
+  "fire": "cssStyleSheet.addRule",
+  "line": 50
+ },
+ "uses-cssValue.cssValueType": {
+  "fire": "cssValue.cssValueType",
+  "line": 51
+ },
+ "uses-document.anchors": {
+  "fire": "document.anchors",
+  "line": 52
+ },
+ "uses-document.bgColor": {
+  "fire": "document.bgColor",
+  "line": 53
+ },
+ "uses-document.domain": {
+  "fire": "document.domain",
+  "line": 54
+ },
+ "uses-document.fgColor": {
+  "fire": "document.fgColor",
+  "line": 55
+ },
+ "uses-document.lastStyleSheetSet": {
+  "fire": "document.lastStyleSheetSet",
+  "line": 56
+ },
+ "uses-document.selectedStyleSheetSet": {
+  "fire": "document.selectedStyleSheetSet",
+  "line": 57
+ },
+ "uses-document.linkColor": {
+  "fire": "document.linkColor",
+  "line": 58
+ },
+ "uses-document.preferredStyleSheetSet": {
+  "fire": "document.preferredStyleSheetSet",
+  "line": 59
+ },
+ "uses-document.styleSheetSets": {
+  "fire": "document.styleSheetSets",
+  "line": 60
+ },
+ "uses-document.createEvent": {
+  "fire": "document.createEvent",
+  "line": 61
+ },
+ "uses-document.createTouch": {
+  "fire": "document.createTouch",
+  "line": 62
+ },
+ "uses-document.createTouchList": {
+  "fire": "document.createTouchList",
+  "line": 63
+ },
+ "uses-document.enableStyleSheetsForSet": {
+  "fire": "document.enableStyleSheetsForSet",
+  "line": 64
+ },
+ "uses-window.releaseEvents": {
+  "fire": "window.releaseEvents",
+  "line": 65
+ },
+ "uses-document.queryCommandEnabled": {
+  "fire": "document.queryCommandEnabled",
+  "line": 66
+ },
+ "uses-document.queryCommandState": {
+  "fire": "document.queryCommandState",
+  "line": 67
+ },
+ "uses-document.queryCommandSupported": {
+  "fire": "document.queryCommandSupported",
+  "line": 68
+ },
+ "uses-event.cancelBubble": {
+  "fire": "event.cancelBubble",
+  "line": 69
+ },
+ "uses-event.initEvent": {
+  "fire": "event.initEvent",
+  "line": 70
+ },
+ "uses-HTMLTableElement.summary": {
+  "fire": "HTMLTableElement.summary",
+  "line": 71
+ },
+ "uses-mediaQueryList.addListener": {
+  "fire": "mediaQueryList.addListener",
+  "line": 72
+ },
+ "uses-mediaQueryList.removeListener": {
+  "fire": "mediaQueryList.removeListener",
+  "line": 73
+ },
+ "uses-navigator.doNotTrack": {
+  "fire": "navigator.doNotTrack",
+  "line": 74
+ },
+ "uses-nodeIterator.detach": {
+  "fire": "nodeIterator.detach",
+  "line": 75
+ },
+ "uses-range.compareNode": {
+  "fire": "range.compareNode",
+  "line": 76
+ },
+ "uses-range.detach": {
+  "fire": "range.detach",
+  "line": 77
+ },
+ "uses-screen.lockOrientation": {
+  "fire": "screen.lockOrientation",
+  "line": 78
+ },
+ "uses-screen.unlockOrientation": {
+  "fire": "screen.unlockOrientation",
+  "line": 79
+ },
+ "uses-vrDisplay.depthFar": {
+  "fire": "vrDisplay.depthFar",
+  "line": 80
+ },
+ "uses-vrDisplay.depthNear": {
+  "fire": "vrDisplay.depthNear",
+  "line": 81
+ },
+ "uses-vrDisplay.isConnected": {
+  "fire": "vrDisplay.isConnected",
+  "line": 82
+ },
+ "uses-vrDisplay.getPose": {
+  "fire": "vrDisplay.getPose",
+  "line": 83
+ },
+ "uses-vrDisplay.resetPose": {
+  "fire": "vrDisplay.resetPose",
+  "line": 84
+ },
+ "uses-vrDisplay.cancelAnimationFrame": {
+  "fire": "vrDisplay.cancelAnimationFrame",
+  "line": 85
+ },
+ "uses-vrDisplay.exitPresent": {
+  "fire": "vrDisplay.exitPresent",
+  "line": 86
+ },
+ "uses-window.blur": {
+  "fire": "window.blur",
+  "line": 87
+ },
+ "uses-DNT": {
+  "fire": "DNT",
+  "line": 88
+ },
+ "uses-Pragma": {
+  "fire": "Pragma",
+  "line": 89
+ },
+ "graded-big": {
+  "fire": "<big>",
+  "line": 90
+ },
+ "graded-blink": {
+  "fire": "<blink>",
+  "line": 91
+ },
+ "graded-small": {
+  "fire": "<small>",
+  "line": 92
+ },
+ "graded-strike": {
+  "fire": "<strike>",
+  "line": 93
+ },
+ "graded-sub": {
+  "fire": "<sub>",
+  "line": 94
+ },
+ "graded-sup": {
+  "fire": "<sup>",
+  "line": 95
+ },
+ "graded-acronym": {
+  "fire": "<acronym>",
+  "line": 96
+ },
+ "graded-center": {
+  "fire": "<center>",
+  "line": 97
+ },
+ "graded-dir": {
+  "fire": "<dir>",
+  "line": 98
+ },
+ "graded-font": {
+  "fire": "<font>",
+  "line": 99
+ },
+ "graded-frameset": {
+  "fire": "<frameset>",
+  "line": 100
+ },
+ "graded-marquee": {
+  "fire": "<marquee>",
+  "line": 101
+ },
+ "graded-nobr": {
+  "fire": "<nobr>",
+  "line": 102
+ },
+ "graded-noembed": {
+  "fire": "<noembed>",
+  "line": 103
+ },
+ "graded-noframes": {
+  "fire": "<noframes>",
+  "line": 104
+ },
+ "graded-param": {
+  "fire": "<param>",
+  "line": 105
+ },
+ "graded-plaintext": {
+  "fire": "<plaintext>",
+  "line": 106
+ },
+ "graded-rb": {
+  "fire": "<rb>",
+  "line": 107
+ },
+ "graded-rtc": {
+  "fire": "<rtc>",
+  "line": 108
+ },
+ "graded-tt": {
+  "fire": "<tt>",
+  "line": 109
+ },
+ "graded-xmp": {
+  "fire": "<xmp>",
+  "line": 110
+ },
+ "graded-shape": {
+  "fire": "<shape>",
+  "line": 111
+ },
+ "graded-maction": {
+  "fire": "<maction>",
+  "line": 112
+ },
+ "graded-mfenced": {
+  "fire": "<mfenced>",
+  "line": 113
+ }
+}

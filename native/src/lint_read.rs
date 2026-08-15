@@ -1,6 +1,6 @@
 //! `lint_read` — a 1-bit sequential predictive coder that LEARNS a language by *reading* its docs.
 //!
-//! Cross-module theory, evidence hierarchy, and the failure ledger live in `LINTER.md` at the
+//! Cross-module theory, evidence hierarchy, and the failure ledger live in `native/architecture.dx` at the
 //! repo root — the single authoritative doc; update it BEFORE changing semantics here.
 //!
 //! The linter's brief is that expanding what it understands must never require a code change — only
@@ -166,7 +166,7 @@ fn ctx_key(ctx: &Hv) -> u32 {
 
 /// Token-frequency storage with exactly ONE live representation: a HOT map while a reader is
 /// learning, or a FROZEN sorted-array pair when loaded from a binary artifact — decoding is a
-/// bulk copy off the `HLM1` RAW stream and lookups binary-search (LINTER.md, "Save"). The
+/// bulk copy off the `HLM1` RAW stream and lookups binary-search (native/architecture.dx, "Save"). The
 /// first write thaws the arrays into the map; lint runs never write, so a loaded substrate
 /// stays frozen for its whole life and the 400k-entry English brain loads in microseconds.
 #[derive(Clone, Default)]
@@ -473,7 +473,7 @@ pub struct PolarityBuilder {
     good: Bundler,
     /// Per-token side tallies (token seed → summed info-bit weight under a BAD label,
     /// under clean EXPOSURE — good labels and plain clean-grounded reality together) — the
-    /// evidence layer of the side-count design (LINTER.md, "The side-count evidence
+    /// evidence layer of the side-count design (native/architecture.dx, "The side-count evidence
     /// layer"). Honest grounding labels are the only labels; exposure is the denominator.
     tallies: std::collections::HashMap<u64, (u32, u32, u32)>,
 }
@@ -513,7 +513,7 @@ impl PolarityBuilder {
     }
 
     /// Tally one grounded prose span WITHOUT training the prototypes — the EXPOSURE side of
-    /// the side-count design (LINTER.md): a clean verdict is not an endorsement label, but
+    /// the side-count design (native/architecture.dx): a clean verdict is not an endorsement label, but
     /// it IS reality the word stood next to, and without it every ubiquitous word would
     /// lean bad by default ("not" appears in 6% flagged prose → neutral; "deprecated" in
     /// 75% → prohibition vocabulary). Callers feed every clean-grounded unit through here.
@@ -521,7 +521,7 @@ impl PolarityBuilder {
         self.tally(prose, TallySide::Exposure);
     }
 
-    /// Tallies cover EVERY read token, common words included (LINTER.md, "The side-count
+    /// Tallies cover EVERY read token, common words included (native/architecture.dx, "The side-count
     /// evidence layer"): English carries prohibition in its most ubiquitous words — the
     /// negation primitives — and reality must be allowed to polarize them. Commonness
     /// discounts the recorded WEIGHT (info bits), never the existence of the evidence.
@@ -590,7 +590,7 @@ impl Reader {
     /// The shared EMPTY reader — a machine that has read nothing yet. Every word reads as
     /// unread (count 0, no corpus head), so callers that rank by reading knowledge degrade
     /// to English knowledge + existence + document order: the self-bootstrap floor a cold
-    /// machine's project law compiles through (LINTER.md, "Honest grounding labels").
+    /// machine's project law compiles through (native/architecture.dx, "Honest grounding labels").
     pub fn empty() -> &'static Reader {
         static EMPTY: std::sync::OnceLock<Reader> = std::sync::OnceLock::new();
         EMPTY.get_or_init(Reader::new)
@@ -633,7 +633,7 @@ impl Polarity {
         }
     }
 
-    /// The token's side-count LEAN, mildly asymmetric by design (LINTER.md, "The side-count
+    /// The token's side-count LEAN, mildly asymmetric by design (native/architecture.dx, "The side-count
     /// evidence layer"): a bad label is reality's own verdict (the toolchain flagged the
     /// code), so a bad lean needs a 2:1 majority; a good label is structural inference (the
     /// fix-sibling convention, which some pages break), so a good lean needs 4:1. With under
@@ -644,7 +644,7 @@ impl Polarity {
     pub fn tally_lean(&self, word: &str) -> Option<bool> {
         let seed = crate::lint_ai::token_seed(&word.to_lowercase());
         let (f, g, e) = self.tally_of_seed(seed);
-        // TRAINED-LEAN PRECEDENCE over the frozen negator (LINTER.md, "PASS 18 — the register
+        // TRAINED-LEAN PRECEDENCE over the frozen negator (native/history.dx, "PASS 18 — the register
         // wire"). Dictionary negation is KNOWLEDGE, not statistics: exposure beside parsing code
         // cannot un-negate a word — "incorrect" beside a thousand clean-parsing `var x = 1`
         // examples still states wrongness (in-correct = not correct, the brain's own discovery),
@@ -731,7 +731,7 @@ impl Polarity {
     }
 
     /// The COLD FLOOR: classify overt prohibition through the dictionary's discovered
-    /// negation cluster alone (LINTER.md, "The cold floor") — the reading an UNREADY
+    /// negation cluster alone (native/architecture.dx, "The cold floor") — the reading an UNREADY
     /// classifier still renders. A span is a prohibition when its negation-clustered words
     /// carry ≥8 info bits; everything else abstains, and endorsement is never rendered
     /// here — only reality can endorse.
@@ -740,7 +740,7 @@ impl Polarity {
     }
 
     /// Whether `prose` carries OPERATIVE negation — a negation operator COMMANDING a
-    /// sentence rather than sitting inside one (LINTER.md, "The cold floor"). The reading
+    /// sentence rather than sitting inside one (native/architecture.dx, "The cold floor"). The reading
     /// is order plus the author's own typography: prohibitions are imperative and lead
     /// with their negation ("Never use X", "Do not call Y"), so the operator must stand
     /// within the first two words of a sentence the author marked as a sentence (an
@@ -772,7 +772,7 @@ impl Polarity {
     }
 }
 
-/// The side-count ratio bars (LINTER.md, "The side-count evidence layer"): a bad lean must
+/// The side-count ratio bars (native/architecture.dx, "The side-count evidence layer"): a bad lean must
 /// beat the word's ENTIRE non-bad reality 2:1 (labels and exposure alike — reality's own
 /// verdict earns trust); a good lean comes only from real fix-position labels at 4:1
 /// (structural inference). Exposure alone can NEUTRALIZE (deny a bad lean) but never
@@ -804,7 +804,7 @@ impl Polarity {
 
     /// Classify prose: `Some(true)` = prohibition, `Some(false)` = endorsement, `None` = abstain
     /// (untrained, unencodable, or no decisive majority). The reading is **words → sentences**
-    /// (LINTER.md, "The side-count evidence layer"): the per-token side-count tallies vote first
+    /// (native/architecture.dx, "The side-count evidence layer"): the per-token side-count tallies vote first
     /// — each word's own grounded history — and only when they cannot decide do the span
     /// prototypes vote. Prototype votes go to whichever prototype the token sits closer to by
     /// more than the CALIBRATED margin ([`calibrated_margin`] — the trained prototypes' own
@@ -819,7 +819,7 @@ impl Polarity {
             // Unready ≠ unread: a language whose docs never pair violations with fixes
             // (reference manuals) trains no good PROTOTYPE, but its grounded tallies are
             // rich — and they, not the crude negation floor, are the evidence. The floor
-            // (LINTER.md, "The side-count evidence layer") decides only when the tallies
+            // (native/architecture.dx, "The side-count evidence layer") decides only when the tallies
             // cannot: truly cold reading. Prohibition only — reality alone can endorse.
             if let Some(v) = self.classify_tallied(prose) {
                 return Some(v);
@@ -969,16 +969,16 @@ pub struct Memory {
     pub polarity: Option<Polarity>,
     /// How many documentation pages' prose the reader actually read — the witness that a read
     /// HAPPENED. A prose-only spec site (no code blocks anywhere) yields zero bindings and zero
-    /// reference, yet the language was read and is set up (LINTER.md, "reading IS the module").
+    /// reference, yet the language was read and is set up (native/architecture.dx, "reading IS the module").
     #[serde(default)]
     pub pages_read: usize,
     /// Token seeds of the example codes the TOOLCHAIN actually flagged during grounding — the
     /// reality-tested labels. A compiled detector may keep literal example tokens only when its
-    /// example is in here or the law's own words name them (LINTER.md, ledger #19): a
+    /// example is in here or the law's own words name them (native/architecture.dx, ledger #19): a
     /// Clean-parsing example's identifiers are just code the docs showed, never evidence.
     #[serde(default, serialize_with = "sorted_u64_set")]
     pub flagged: std::collections::HashSet<u64>,
-    /// The language's file-extension claims, learned from its own documentation (LINTER.md,
+    /// The language's file-extension claims, learned from its own documentation (native/architecture.dx,
     /// "File types are learned by reading"): dot-led tokens tallied while reading, corpus-head
     /// words dropped. `{extension → mention count}`; empty when the docs never name a file.
     #[serde(default)]
@@ -1001,7 +1001,7 @@ pub struct Memory {
 /// definition "JavaScript (JS)" / "TypeScript (TS)" is how documentation introduces its own
 /// short name, and that short name is how the world names the language's files. A found
 /// abbreviation claims maximal strength (`u32::MAX`) in `tally` — the language's own docs
-/// defining their own name outrank any mention count (LINTER.md, "File types are learned by
+/// defining their own name outrank any mention count (native/architecture.dx, "File types are learned by
 /// reading"). Pure typography over the registered name: no abbreviation list anywhere.
 pub fn tally_name_aliases(lang: &str, text: &str, tally: &mut std::collections::BTreeMap<String, u32>) {
     let lower = text.to_lowercase();
@@ -1062,7 +1062,7 @@ pub fn tally_name_aliases(lang: &str, text: &str, tally: &mut std::collections::
 }
 
 /// Tally every dot-led token of `text` into `tally` — the typographic half of learning a
-/// language's file extensions from its docs (LINTER.md, "File types are learned by reading").
+/// language's file extensions from its docs (native/architecture.dx, "File types are learned by reading").
 /// A claim candidate is `.` + a 1..=8-char alphanumeric run containing at least one letter,
 /// closing its word (`main.rs`, ".py", `hello.kt -d hello.jar`). A run a call opener follows
 /// is an invocation, never a filename (`console.log(x)`, `.println(...)`); version numbers
@@ -1095,7 +1095,7 @@ pub fn tally_dotted_tokens(text: &str, tally: &mut std::collections::BTreeMap<St
     }
 }
 
-// ── HLM1 binary codecs (LINTER.md, "Save") ────────────────────────────────────
+// ── HLM1 binary codecs (native/architecture.dx, "Save") ────────────────────────────────────
 //
 // Field order IS the wire order; hypervectors and the frequency arrays ride the RAW stream
 // (bulk-copy decode), text rides the deflated DATA stream. A decoded reader's frequency table
@@ -1402,7 +1402,7 @@ mod tests {
     #[test]
     fn untrained_polarity_reads_negation_and_nothing_else() {
         // One-sided training leaves the PROTOTYPES unusable — but the dictionary's negation
-        // cluster still reads overt prohibition (LINTER.md, "The cold floor"): that is what
+        // cluster still reads overt prohibition (native/architecture.dx, "The cold floor"): that is what
         // lets a fresh machine mint "Never use X" laws from an ungroundable language's docs.
         // Good side empty; enough one-sided READING for information weights to mean
         // anything (a three-token universe cannot weigh any word).

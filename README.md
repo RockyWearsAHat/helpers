@@ -66,67 +66,18 @@ Toggles are **live** — the MCP server re-reads its config each request, so ena
 or disabling tools takes effect without restarting the agent. A disabled tool can
 still be forced for one call with `{ "force": true }`.
 
-## MCP tools
+## MCP tools, git subcommands, architecture, dev/release
 
-Exposed to the agent via the `helpers` MCP server (`helpers-native mcp`):
+Exposed to the agent via the `helpers` MCP server (`helpers-native mcp`): project
+index (`index_project`/`project_map`/`lookup`), project flows
+(`register_workspace_tool`), knowledge memory, gated web research, quality gates
+(`lint`, `checkpoint`), and the busybox-style `git-*` subcommands. CS2420/CS3500
+grading is a property of a clean `lint` run — there is no separate grader.
 
-**Workflow & quality**
-- `cs_lint` — prioritized CS2420/CS3500 violations (`file:line` + fix).
-- `strict_lint` — run each language's linters for a file/folder/workspace.
-- `checkpoint` — stage/commit a precise subset with your own message.
-
-**Project index** (orient without grepping)
-- `index_project`, `project_map`, `lookup`, `project_setup`.
-
-**Project flows** (reusable, project-scoped, callable by any agent)
-- `register_workspace_tool`, `unregister_workspace_tool`, `list_workspace_tools`.
-
-**Knowledge & web**
-- `search_knowledge_index`, `search_knowledge_cache`, `read_knowledge_note`,
-  `write_knowledge_note`, `update_knowledge_note`, `append_to_knowledge_note`,
-  `build_knowledge_index`, `submit_community_research`.
-- `search_web`, `scrape_webpage` — drive a real Chrome (CDP). Automated like a
-  person; if Google shows a CAPTCHA, a visible Chrome opens for you to solve once,
-  then the verified session is reused. **Requires Google Chrome** — the tools say
-  so if it's missing.
-
-## Git subcommands
-
-The same binary is symlinked busybox-style to standalone `git-*` helpers:
-`git-resolve`, `git-remerge`, `git-checkpoint`, `git-upload`, `git-get`,
-`git-initialize`, `git-scan-for-leaked-envs`, `git-fucked-the-push`, and
-`git-help-i-pushed-an-env`.
-
-## CS2420 / CS3500 quality
-
-The `lint` tool enforces the CS2420 / CS3500 principles directly: it learns them from
-`corpus/cs-principles.md` (alongside the official language rules it learns from the docs) and
-reports the exact `file:line` to fix. Followed to a T those principles ~guarantee an A+, so a
-clean `lint` is the signal — there is no separate grader.
-
-## VS Code extension
-
-An optional VS Code extension (`vscode-extension/`) registers the Helpers MCP
-server and ships agent guidance for Copilot. It's the only TypeScript component and
-is editor-specific; the binary works without it in any MCP agent.
-
-## Development & contributing
-
-```sh
-bash ./scripts/test.sh                          # JS/shell test suite
-cargo test --manifest-path native/Cargo.toml    # native Rust tests
-cargo build --release --manifest-path native/Cargo.toml
-```
-
-- **Architecture:** the runtime is one Rust crate (`native/`). The binary dispatches
-  busybox-style: `helpers` → the control CLI, `helpers-native mcp` → the MCP server,
-  `git-*` → the ported git helpers, and `helpers-native schemas|call` for tooling.
-  Agent config is embedded in the binary; web tools use `headless_chrome` (CDP, no
-  Node).
-- **Releasing:** bump `VERSION` (single-line semver) and add
-  `release-notes/v<version>.md`. On merge to `main`, CI cross-builds the binary for
-  all platforms, runs a Node-free install-test on macOS/Linux/Windows, and publishes
-  the release with prebuilt tarballs, checksums, and packages.
+Full docs — every MCP tool with its schema, the complete `git-*` subcommand list,
+architecture (native binary dispatch, MCP startup, live tool toggling), the VS Code
+extension, and the dev/release process — live in `helpers.dx`: read via the dx MCP
+tools (`dx_read`) or `dx read helpers.dx`.
 
 ## License
 

@@ -1,0 +1,58 @@
+{
+ "uses-attributeType": {
+  "fire": "attributeType",
+  "line": 2
+ },
+ "uses-baseProfile": {
+  "fire": "baseProfile",
+  "line": 3
+ },
+ "uses-requiredFeatures": {
+  "fire": "requiredFeatures",
+  "line": 4
+ },
+ "uses-xlink:href": {
+  "fire": "xlink:href",
+  "line": 5
+ },
+ "uses-xml:lang": {
+  "fire": "xml:lang",
+  "line": 6
+ },
+ "uses-xml:space": {
+  "fire": "xml:space",
+  "line": 7
+ },
+ "uses-zoomAndPan": {
+  "fire": "zoomAndPan",
+  "line": 8
+ },
+ "uses-acronym": {
+  "fire": "acronym",
+  "line": 9
+ },
+ "uses-big": {
+  "fire": "big",
+  "line": 10
+ },
+ "uses-<frame>": {
+  "fire": "frame",
+  "line": 11
+ },
+ "uses-frameset": {
+  "fire": "frameset",
+  "line": 12
+ },
+ "uses-marquee": {
+  "fire": "marquee",
+  "line": 13
+ },
+ "uses-rb": {
+  "fire": "rb",
+  "line": 14
+ },
+ "uses-tt": {
+  "fire": "tt",
+  "line": 15
+ }
+}

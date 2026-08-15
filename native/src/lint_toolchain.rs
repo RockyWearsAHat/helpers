@@ -48,7 +48,7 @@ struct Toolchain {
     #[serde(default)]
     flag_markers: Vec<String>,
     /// Fragment harness: `{code}` templates retried IN ORDER when the snippet fails as
-    /// written (LINTER.md, open problems — fragment examples). Documentation quotes
+    /// written (native/architecture.dx, open problems — fragment examples). Documentation quotes
     /// FRAGMENTS (`#[expect(…)]` on a bare line; go statements without a `package`
     /// clause), and different fragment shapes need different scaffolds (go: statement
     /// wrap vs top-level-declaration wrap). A snippet that passes under ANY wrap is

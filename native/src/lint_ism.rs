@@ -1,6 +1,6 @@
 //! The corroboration engine — the ISM's graduation gate.
 //!
-//! Contract: `LINTER.md` → north-star section → "The corroboration engine — the graduation gate". A
+//! Contract: `native/history.dx` → north-star section → "The corroboration engine — the graduation gate". A
 //! candidate understanding is not "learned" because it was predicted once; it GRADUATES to PROVEN only
 //! when it is mirrored **≥ [`REQUIRED_WITNESSES`] times INDEPENDENTLY**, none contradicting (the anti-
 //! Dunning-Kruger law, north-star step 5). This module turns that law into a mechanism: it takes a
@@ -28,7 +28,7 @@ use crate::lint_corroborate::consistency;
 use crate::lint_english::English;
 
 /// The OWNER-SPECIFIED number of genuinely independent, non-contradicting witnesses a candidate truth must
-/// gather to GRADUATE to PROVEN (`LINTER.md` north-star step 5). This is a spec PARAMETER — the count that
+/// gather to GRADUATE to PROVEN (`native/architecture.dx` north-star step 5). This is a spec PARAMETER — the count that
 /// separates a one-off overfit from an independently reproduced truth — NOT a tuned distance threshold. The
 /// per-witness corroboration and the independence test are entirely comparative; only this count is a
 /// literal, and it is the owner's, cited here as such.

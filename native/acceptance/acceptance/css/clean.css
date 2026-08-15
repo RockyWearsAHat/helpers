@@ -1,0 +1,10 @@
+/* Modern, alive CSS — expected findings: ZERO. box-orient and clip live only in this comment. */
+.layout { display: flex; align-items: flex-start; flex-direction: row-reverse; }
+.layout .item { order: 3; flex: 1 1 auto; }
+.card { break-after: page; break-before: avoid-page; break-inside: avoid; }
+.art { clip-path: inset(0 round 8px); }
+.editor { user-select: none; }
+.link { text-decoration-skip-ink: auto; }
+meter { appearance: none; }
+button:focus-visible { outline: 2px solid blue; }
+@media (prefers-reduced-motion: reduce) { .anim { transition: none; } }

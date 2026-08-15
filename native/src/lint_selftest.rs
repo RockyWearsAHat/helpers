@@ -1,6 +1,6 @@
 //! The self-generated test loop — proving a learned rule by GENERATING violations and LINTING them.
 //!
-//! Contract: `LINTER.md` → north-star section → "The self-generated test loop". A rule does not
+//! Contract: `native/history.dx` → north-star section → "The self-generated test loop". A rule does not
 //! graduate because the docs RESTATE it; it graduates because the AI proves WHAT IT UNDERSTANDS by
 //! generating code that embodies the violation, running the REAL linter over it, and reconciling the
 //! violation the linter FINDS with the rule it LEARNED — **in English**, the incorruptible in-between

@@ -11,7 +11,7 @@
 //! substitution register is NOT separable in the substrate's meaning geometry — the same flat-geometry
 //! wall passes 11/12 measured for the PROHIBITION register, now reconfirmed for SUPERSESSION. The only
 //! reliable signal is LITERAL membership of a substitution word in the sentence (hop-0), which is a
-//! hardcoded phrase list — forbidden by the covenant. See LINTER.md "COMPLETION PASS 16".
+//! hardcoded phrase list — forbidden by the covenant. See native/history.dx "COMPLETION PASS 16".
 //!
 //! Run: `cargo run --release --example super_probe`
 use helpers_native::lint_char::{self, MeaningNetwork};
@@ -153,6 +153,6 @@ fn main() {
     }
     println!(
         "\nVERDICT: the substitution register is not separable through understanding; the only signal\n\
-         is literal membership (hop-0) = a hardcoded phrase list. Covenant-forbidden. See LINTER.md P16."
+         is literal membership (hop-0) = a hardcoded phrase list. Covenant-forbidden. See native/history.dx P16."
     );
 }

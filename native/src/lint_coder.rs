@@ -1,4 +1,4 @@
-//! `lint_coder` — PASS 39 phase one, item 2 (LINTER.md "PASS 39"): a ONE-BIT predictive coder
+//! `lint_coder` — PASS 39 phase one, item 2 (native/history.dx "PASS 39"): a ONE-BIT predictive coder
 //! over the markup token stream.
 //!
 //! ## The model
@@ -18,7 +18,7 @@
 //! [`crate::lint_graph`]'s module doc names as HTML's own typography), and the model's entire
 //! state is XOR / popcount / majority-vote — the same binary substrate as the existing brains.
 //!
-//! ## GPU (owner ruling, LINTER.md "PASS 39", 2026-07-20): training is FOR the GPU — do not fake it
+//! ## GPU (owner ruling, native/history.dx "PASS 39", 2026-07-20): training is FOR the GPU — do not fake it
 //! The owner's ruling is explicit: batched one-bit updates across thousands of lanes is where this
 //! design's real speed lives, and CPU popcount alone "isn't bad, but isn't amazing." This phase
 //! ships the CPU reference ONLY: the existing GPU plumbing ([`crate::hv_batch`]) is a batched
@@ -30,7 +30,7 @@
 //! `hv_batch`-sibling batched one-bit training kernel** — bind `hv_batch`'s existing WGSL
 //! infrastructure (device/queue/buffer setup already proven there) to a scatter-XOR-popcount-
 //! threshold shader over `(context, target)` pairs, one dispatch per training-corpus chunk.
-//! CPU inference stays CPU regardless of where training runs (LINTER.md's own reasoning: shadow
+//! CPU inference stays CPU regardless of where training runs (native/architecture.dx's own reasoning: shadow
 //! proposals and any future lint-path read are µs-tiny, syscall-adjacent workloads where a GPU
 //! dispatch is pure overhead).
 
@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(predicted.distance(&actual), 0);
     }
 
-    // ── PASS 39 item 3 — the full-corpus measurement (LINTER.md "PASS 39") ──────────────────
+    // ── PASS 39 item 3 — the full-corpus measurement (native/history.dx "PASS 39") ──────────────────
     //
     // Ignored by default (corpus-scale, minutes-class): run explicitly with
     // `cargo test --release --lib lint_coder::tests::measure_full_corpus -- --ignored --nocapture`.

@@ -1,7 +1,7 @@
 //! Construct selection for [`super`]: how a rule's ENGLISH names the thing its detector
 //! watches. Grounding corpora ([`Grounding`]/[`GroundView`]), the learned-evidence description
 //! discriminator, the `bad ∧ ¬good` token-diff fallback, and the code-surface masker that keeps
-//! grounding and firing in the same text universe. Theory and failure ledger: `LINTER.md`.
+//! grounding and firing in the same text universe. Theory and failure ledger: `native/architecture.dx`.
 
 use std::collections::HashSet;
 
@@ -24,7 +24,7 @@ pub(super) fn ground_runs(text: &str) -> impl Iterator<Item = String> + '_ {
 /// for a whole-line comment; otherwise the line with string-literal interiors blanked and a
 /// trailing `//`/`#` comment cut. Grounding and firing MUST share this function: a law grounds
 /// only against real code, so its detector must fire only on real code — the same text universe
-/// on both sides (LINTER.md ledger #12). The quote characters themselves survive (the string
+/// on both sides (native/architecture.dx ledger #12). The quote characters themselves survive (the string
 /// EXISTS; its English contents don't count as code), and a quote with no closing mate on the
 /// same line is NOT a string opener — it is code typography (a Rust lifetime `'a`, a stray
 /// backtick) and masking to end-of-line would hide real constructs behind it.
@@ -168,7 +168,7 @@ pub struct Grounding {
     /// exempt from the prohibition gate exactly as the live path exempts them from the Hv gate.
     pub trusted: std::collections::HashSet<String>,
     /// Token seeds of the example codes the toolchain FLAGGED during grounding — the
-    /// reality-tested labels (LINTER.md, ledger #19). The example-diff compile path may keep
+    /// reality-tested labels (native/architecture.dx, ledger #19). The example-diff compile path may keep
     /// literal example tokens only for an example in here (or when the law's own words name
     /// them): a Clean-parsing example's identifiers are just code the docs showed.
     pub flagged: std::collections::HashSet<u64>,
@@ -230,7 +230,7 @@ impl<'a> GroundView<'a> {
             project_raw_tokens: raw_tokens_of(&g.project),
             // A machine that has read nothing still READS: the empty reader ranks every word
             // as unread, so selection degrades to English knowledge + existence + document
-            // order — the self-bootstrap floor (LINTER.md, "Honest grounding labels"). Only
+            // order — the self-bootstrap floor (native/architecture.dx, "Honest grounding labels"). Only
             // the polarity CONTEXT tier needs a trained classifier.
             reader: Some(match g.polarity.as_deref() {
                 Some(p) => p.reader(),
@@ -327,20 +327,20 @@ pub(super) fn description_discriminator(
     only_grounded: bool,
 ) -> Option<(String, bool)> {
     let reader = ground.reader?;
-    // "Not common language" (LINTER.md evidence hierarchy #2, ledger #17): a word is
+    // "Not common language" (native/architecture.dx evidence hierarchy #2, ledger #17): a word is
     // connective when common language accounts for it — the dictionary-read LangBrain knows
     // it, or it sits in the docs corpus head. The docs head alone measurably cannot carry
     // this judgment ("never" at 165 reads sat far under a 691-read head cutoff, so register
     // words hijacked selection from the named construct).
     let english = crate::lint_english::brain();
-    // "Not common language" (LINTER.md evidence hierarchy #4, ledger #17): common language
+    // "Not common language" (native/architecture.dx evidence hierarchy #4, ledger #17): common language
     // accounts for a word when the dictionary-read LangBrain knows it or it sits in the docs
     // corpus head. English is asked about the WHOLE word: a compound identifier
     // (`secret_token`, `document.write`) reads as several English tokens, but the compound
     // itself is code typography no dictionary defines — its parts being common must not
     // demote it. The docs head alone measurably cannot carry this judgment ("never" at 165
     // reads sat far under a 691-read head cutoff, so register words hijacked selection).
-    // MIGRATION (LINTER.md, "retiring word-level `english.knows`"): the single-token `e.knows`
+    // MIGRATION (native/architecture.dx, "retiring word-level `english.knows`"): the single-token `e.knows`
     // tie-break becomes `lint_graph::word_is_english(char_brain, …)` once the char brain reaches
     // SELECTION and this path's tests carry a meaning-bound brain — LEFT until then so selection
     // stays pinned.
@@ -353,7 +353,7 @@ pub(super) fn description_discriminator(
     // construct can itself be an English word and ground nowhere (`panic` in a clean repo),
     // so among UNGROUNDED words only the docs-corpus head demotes and the sentence's own
     // polarity context stays the deciding evidence (the register residual there is the
-    // per-token polarity open problem, LINTER.md).
+    // per-token polarity open problem, native/architecture.dx).
     let head_only = |surface: &str| {
         let inner = crate::lint_read::tokens(surface);
         !inner.is_empty() && inner.iter().all(|t| reader.is_head_word(t))
@@ -430,7 +430,7 @@ pub(super) fn description_discriminator(
         let rarity = inner.iter().map(|t| reader.read_count(t)).min().unwrap_or(0);
         candidates.push((surface.to_string(), position, tier, marked, in_project, grounded, rarity, raw_only));
     }
-    // Ordering (see LINTER.md, "The evidence hierarchy"). For the PROJECT'S LAW,
+    // Ordering (see native/architecture.dx, "The evidence hierarchy"). For the PROJECT'S LAW,
     // NOT-CONNECTIVE leads: the unread word is the construct, and both recorded hijack modes —
     // register words reading as decisively forbidding (ledger #15) and ordinary words
     // grounding through the project's own text (ledger #14: "never", "project") — are corpus
@@ -444,7 +444,7 @@ pub(super) fn description_discriminator(
             (!*grounded, *tier, connective(surface), *rarity, *position)
         });
     } else {
-        // LINTER.md, "The evidence hierarchy": not-the-remedy, the author's marking,
+        // native/architecture.dx, "The evidence hierarchy": not-the-remedy, the author's marking,
         // project-code existence, not-common-language, docs existence, forbidding context,
         // then document order (grounded) / rarity (ungrounded). Existence leads the English
         // judgment because a law's construct may itself be an English word (`panic`, `var`) —
@@ -491,7 +491,7 @@ pub(super) fn tokens_fire_text(text: &str, tokens: &[String]) -> bool {
 /// Whether `tokens` (stored lowercased) occur on this line, in order, each as a WHOLE token:
 /// a token edge that is a word character (letter/digit/`_`) must not touch a word character
 /// in the line, so `eval` never fires inside `literal_eval` while a trailing `)` needs no
-/// gap. Matching is on the lowercased surface — every detector is case-insensitive (LINTER.md
+/// gap. Matching is on the lowercased surface — every detector is case-insensitive (native/architecture.dx
 /// ledger #15). This is the ONLY text-matching function: the compile gates (self-fire,
 /// over-fire, reference-fire) and the live path both call it, so they can never disagree
 /// about what a detector means.
@@ -576,7 +576,7 @@ fn find_whole_token(hay: &str, token: &str, from: usize) -> Option<usize> {
 /// Strips `//`/`#` comment lines first so doc-page prose comments like
 /// `// example code where clippy issues a warning` do not pollute the discriminator.
 /// Tokens are the reader's word runs ([`crate::lint_read::read_units`]) — the ONE tokenizer
-/// every token set in the engine goes through (LINTER.md ledger #2/#11); there is no
+/// every token set in the engine goes through (native/architecture.dx ledger #2/#11); there is no
 /// example-specific token grammar and no enumerated operator/sigil/flag shapes. Tries an
 /// ordered same-line two-token pair first (most specific), then a single distinctive token,
 /// each validated with [`tokens_fire_text`] — the very matcher that will fire it live.
@@ -615,7 +615,7 @@ pub(super) fn text_discriminator(bad: &str, good: &str) -> Option<Vec<String>> {
         tokens_fire_text(bad, tokens) && !tokens_fire_text(good, tokens)
     };
 
-    // Most GENERAL detector that still discriminates, in order (LINTER.md, "Compile"):
+    // Most GENERAL detector that still discriminates, in order (native/architecture.dx, "Compile"):
     // 1. a pure bad ∧ ¬good ordered pair (both tokens absent from the fix — generalizes);
     // 2. a single distinctive token;
     // 3. only last, a relaxed pair anchored on one token the fix shares — trying this

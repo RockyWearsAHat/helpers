@@ -16,7 +16,7 @@ use crate::proto::{text, ToolResult};
 /// Commit newly-trained models + corpus changes and open a GitHub PR so others get them.
 /// `models=true` instead publishes this machine's learned catalogs to the GitHub model
 /// registry (the `lint-models` branch of origin) so other machines download instead of
-/// re-crawling (LINTER.md, "No connectivity flags").
+/// re-crawling (native/architecture.dx, "No connectivity flags").
 pub fn run_submit(args: &Value) -> ToolResult {
     if args["identity"].as_bool().unwrap_or(false) {
         return Ok(vec![text(format!(
@@ -469,7 +469,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             let names: Vec<&str> = langs.iter().filter_map(|v| v.as_str()).collect();
             Ok(vec![text(format!("Language filter set to: {}", names.join(", ")))])
         }
-        // Batch training (LINTER.md, "Every registered language trains in one batch"): run the
+        // Batch training (native/architecture.dx, "Every registered language trains in one batch"): run the
         // pipeline for every language the registry names (plus every discovered one) in
         // parallel. Models are machine-global, so after one batch every repo on the machine
         // lints every known language instantly.
@@ -477,7 +477,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             let started = std::time::Instant::now();
             // The ONE setup verb: network acquisition is allowed here and nowhere else.
             crate::lint_train::allow_network_setup();
-            // The curriculum, in dependency order (LINTER.md, "The character-level substrate"):
+            // The curriculum, in dependency order (native/architecture.dx, "The character-level substrate"):
             // common language first — the substrate reads the machine's own dictionary ENTIRELY
             // (purely local, witnessed); then the web delivery layer (html→css→js) read whole
             // calibrates the register judgment and the learned structural roles; only then may
@@ -485,7 +485,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             let english = crate::lint_english::ensure_built();
             let data = crate::tools::lint::data_root_pub();
             // The language manifest always shows the full picture (backfilled, never
-            // overwriting the user's entries) — LINTER.md, "The language manifest".
+            // overwriting the user's entries) — native/architecture.dx, "The language manifest".
             crate::lint_train::manifest_sync(&data);
             // The cumulative character brain (owner directive 2026-07-07): English base, then
             // the web curriculum layered on, so it can read any documentation in the website it
@@ -498,7 +498,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             // discovered languages then train like any registered language.
             let project_langs = crate::tools::lint::project_languages(&root);
             let site_lines = crate::lint_train::prepare_sites(&data, &project_langs);
-            // MODULAR SCOPE (LINTER.md, "Online to set up"): a project pays only for the
+            // MODULAR SCOPE (native/architecture.dx, "Online to set up"): a project pays only for the
             // modules it needs. Default = the current project's own languages (plus an
             // explicit `lang=`); the machine-wide batch of every registered language runs
             // only on `all=true`. A registered language no project here uses costs nothing.
@@ -527,7 +527,7 @@ pub fn run_config(args: &Value) -> ToolResult {
                 &root,
                 &crate::lint_train::NoProject,
             );
-            // Exactly one copy on disk (LINTER.md, "Save"): migrate or drop whatever the
+            // Exactly one copy on disk (native/architecture.dx, "Save"): migrate or drop whatever the
             // JSON era left that no load path will ever touch again.
             let swept = crate::lint_train::sweep_legacy_cache(&data);
             let mut lines: Vec<String> = Vec::new();
@@ -539,7 +539,7 @@ pub fn run_config(args: &Value) -> ToolResult {
                 let state = match models.get(lang) {
                     Some(m) if read_ok => format!("{} rule(s)", m.rules.rule_count()),
                     // Read and set up, zero prohibitions compiled — a descriptive spec is a
-                    // successful read (LINTER.md, "reading IS the module"), never "not learned".
+                    // successful read (native/architecture.dx, "reading IS the module"), never "not learned".
                     None if read_ok && report.skipped.iter().any(|(l, _)| l == lang) => {
                         "0 rule(s) — docs read; nothing to enforce yet".to_string()
                     }
@@ -547,7 +547,7 @@ pub fn run_config(args: &Value) -> ToolResult {
                         "needs a docs URL — `lint_config action=add_source`".to_string()
                     }
                     // A NEEDED language failed: retry the probe, make sure it is a real
-                    // error, then ask for input instead of a shrug (LINTER.md, "Online to
+                    // error, then ask for input instead of a shrug (native/architecture.dx, "Online to
                     // set up") — the answer is a new link or "this documentation isn't
                     // usable", never a silent retry loop.
                     // Hermetic/offline setup cannot probe — report plainly (the reconnect
@@ -591,7 +591,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             if let Some(cb) = char_brain {
                 body.push_str(&format!("{cb}\n"));
             }
-            // The curriculum refusal, asked by name (LINTER.md, "The character-level substrate"):
+            // The curriculum refusal, asked by name (native/architecture.dx, "The character-level substrate"):
             // a brain that learned no page structure cannot read served documentation at all —
             // page reading gates on it ([`lint_graph::read_page`]). The committed
             // char-structure bootstrap serves a machine that could not crawl the web.
@@ -621,7 +621,7 @@ pub fn run_config(args: &Value) -> ToolResult {
             }
             Ok(vec![text(body)])
         }
-        // Register a documentation source (LINTER.md, "Online to set up, offline to run"):
+        // Register a documentation source (native/architecture.dx, "Online to set up, offline to run"):
         // a data write into the discovery cache — overwrites a failed discovery's negative
         // marker and drops the language's model stamp so the next train/lint learns it.
         // Offline-safe; trains nothing by itself (`action=train` is the training verb).

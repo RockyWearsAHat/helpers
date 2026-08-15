@@ -15,7 +15,7 @@
 /// Latched TRUE the first time a network request fails at the TRANSPORT level this run —
 /// the wire is down, not "this page had nothing". Callers use [`network_down`] to keep
 /// linting from caches, skip further network attempts, avoid caching negative discovery
-/// answers, and report honestly (LINTER.md, "No connectivity flags").
+/// answers, and report honestly (native/architecture.dx, "No connectivity flags").
 pub static NET_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether any network request this run failed at the transport level (see [`NET_DOWN`]).
@@ -144,7 +144,7 @@ pub fn extract(content_type: &str, body: &str) -> Vec<(String, String)> {
 
 /// [`extract`] carrying each block's own LANGUAGE HINT as a third field — what the page itself
 /// declared this block to be (fence info string, `brush:`/`language-*` classes), "" when the
-/// block declares nothing. Sites are polyglot by default (LINTER.md, ledger #18): the hint is
+/// block declares nothing. Sites are polyglot by default (native/architecture.dx, ledger #18): the hint is
 /// how a reader avoids binding an MDN JavaScript page's HTML example into javascript. The raw
 /// declared token is returned verbatim (lowercased); resolving it to a KNOWN language is the
 /// caller's judgment ([`crate::lint_train::hint_language`]) — extraction only reports what the
@@ -289,7 +289,7 @@ pub fn extract_sections_html(html: &str) -> Vec<(String, String)> {
 
 /// [`extract_sections_html`] carrying each block's own language hint ([`block_lang_hint`]).
 pub fn extract_sections_html_hinted(html: &str) -> Vec<(String, String, String)> {
-    // The AI reads the page (LINTER.md, "Reading a page is UNDERSTANDING"): units are the char
+    // The AI reads the page (native/architecture.dx, "Reading a page is UNDERSTANDING"): units are the char
     // brain's meaning judgment plus its learned structural roles over the raw body — no tag list
     // here. Without a trained brain nothing can read HTML, and nothing pretends to.
     let Some(brain) = crate::lint_char::brain() else {
@@ -515,7 +515,7 @@ mod net {
     }
 
     /// Public reachability verdict for a documentation URL — the setup report's classifier
-    /// (LINTER.md, "Online to set up"): `true` when the origin answers at all. Probes twice
+    /// (native/architecture.dx, "Online to set up"): `true` when the origin answers at all. Probes twice
     /// before saying no (retry — a one-off handshake hiccup is not a dead site); the per-run
     /// breaker remembers the verdict so nothing else pays for it again.
     pub fn origin_reachable(url: &str) -> bool {
@@ -577,7 +577,7 @@ mod net {
         // dead for this process — stop paying its timeout on every subsequent page (measured:
         // two unresponsive sites held a 0.4s all-languages train at 60s of pure waiting). A
         // one-off timeout on an origin that HAS answered never trips it, and nothing is
-        // cached across runs — the next setup run probes the site fresh (LINTER.md: a
+        // cached across runs — the next setup run probes the site fresh (native/architecture.dx: a
         // network failure is reported plainly, never cached as a negative answer).
         if origin_is_dead(url) {
             return None;
@@ -607,7 +607,7 @@ mod net {
             }
             // TRANSPORT failure: the network itself is unreachable. Latch it — the run keeps
             // linting from caches, callers stop caching negative answers, and the report asks
-            // to reconnect instead of failing (LINTER.md, "No connectivity flags").
+            // to reconnect instead of failing (native/architecture.dx, "No connectivity flags").
             Err(ureq::Error::Transport(_)) => {
                 super::NET_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
                 origin_failed(url);
