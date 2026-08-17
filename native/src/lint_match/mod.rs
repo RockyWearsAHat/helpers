@@ -423,6 +423,9 @@ impl RuleSet {
         // and its target is legacy-ubiquitous BY DESIGN (`var` is taught using `var`), so the corpus
         // fire-rate must not veto it (`native/architecture.dx`, "The modular rebuild").
         let mut plan_rule_ids: HashSet<String> = HashSet::new();
+        // Ids of CANON principles whose plan the canon proof already accepted — exempt from the
+        // self-fire gate below, which would re-prove them against a cross-language illustration.
+        let mut canon_proven_ids: HashSet<String> = HashSet::new();
         // Ids whose detector was REWRITTEN to the author's dotted member typography (owner
         // ruling 2026-07-18, second): the rule's own bad example demonstrates the BARE shape a
         // member page teaches with, which the dotted detector rightly does not fire — its
@@ -632,6 +635,18 @@ impl RuleSet {
                 continue;
             }
             let kind = if let Some(plan) = bound_trace {
+                // A canon principle bound through understanding carries its OWN proof: it reached
+                // here only through `understand_canon`, which gates on `canon_plan_proven` — fires
+                // on the machine's known-terrible reference, stays clean on the known-excellent one.
+                // Record it, so the SELF-FIRE gate below does not re-prove it against its bad
+                // example. That example is a teaching illustration in ONE language (principle 6's
+                // is a Java try/catch), which this build may be compiling for another — the plan
+                // then "misses its own bad example" purely because a Java snippet is not Rust, and a
+                // PROVEN principle vanishes. Measured 2026-08-17: this gate alone was withholding
+                // `6_never_swallow_exceptions`, whose `Unary` plan proves cleanly.
+                if is_corpus_principle {
+                    canon_proven_ids.insert(id.clone());
+                }
                 MatchKind::Trace(plan)
             } else if has_grammar {
                 if let Some(pat) = RulePattern::compile(lang, bad, good, desc) {
@@ -783,6 +798,7 @@ impl RuleSet {
             // line its dotted chain was read from ([`member_dotted`]).
             let keep = bad.is_empty()
                 || member_dotted.contains(&r.id)
+                || canon_proven_ids.contains(&r.id)
                 || !r.kind.matches(lang, &text_input(r, bad)).is_empty();
             if !keep {
                 dropped(&r.id, "self-fire (detector misses the rule's own bad example)");
