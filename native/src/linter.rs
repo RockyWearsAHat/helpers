@@ -292,8 +292,16 @@ impl Knowledge {
                         continue;
                     }
                     match cur.as_mut() {
-                        // A heading-started rule absorbs its body paragraphs until code arrives.
-                        Some(b) if b.from_heading && b.blocks.is_empty() => {
+                        // A heading-started rule absorbs its body paragraphs — ALL of them, including
+                        // the ones that follow its code examples. The heading is the unit boundary:
+                        // the next rule starts at the next heading, never at a paragraph inside this
+                        // section. (Measured 2026-08-17: stopping at the first code block minted
+                        // orphan sentence fragments as whole "principles" out of the CS canon —
+                        // `if_a_comment_just_restates_the_code_in`, `the_four_segments_force_you_to_specify_who`
+                        // — each a continuation of the section it sat in.) A PARAGRAPH-started rule
+                        // still yields one rule per paragraph, so a bare list of English instructions
+                        // reads as a list of laws.
+                        Some(b) if b.from_heading => {
                             b.heading_only = false;
                             if b.rule.description == b.rule.id {
                                 // The heading was the bare rule id — this prose IS the advice.
