@@ -733,6 +733,16 @@ pub fn project_rule_ids(project_root: &Path, lang: &str) -> std::collections::Ha
     project_rules(project_root, lang).into_iter().map(|r| r.id).collect()
 }
 
+/// Every id the machine-global CANON states — read fresh from `<data_root>/corpus/*.md` through the
+/// same memoized reader the rules themselves come from, so this costs a map lookup after the first
+/// call. Callers need to tell a canon principle apart from a doc-learned rule at REPORT time, where
+/// only the id survives: a canon principle is neither the user's own law nor a docs scrape, and the
+/// two report gates that exist for those populations both misjudge it (see the fire-rate quarantine
+/// and the "not yet enforceable" render in `tools/lint.rs`).
+pub(crate) fn corpus_principle_ids(data_root: &Path) -> std::collections::HashSet<String> {
+    read_rule_documents(&corpus_documents(data_root), true).iter().map(|(_, r)| r.id.clone()).collect()
+}
+
 /// Train from both documentation sources and return one [`LangModel`] per language. Idempotent
 /// and checksum-gated: a language whose pattern rules and toolchain version are unchanged reloads
 /// from cache; behavioral principles are re-extracted each run (fast file reads, no compilation).
@@ -1083,9 +1093,24 @@ fn train_language(
                 .filter(|r| compiled.contains(&r.id) && !rules.is_probe(&r.id))
                 .map(|r| (r.id.clone(), r.description.clone(), r.bad.clone()))
                 .collect();
+            // A rule the language CANNOT structurally carry is not "unenforceable law" — it is
+            // INAPPLICABLE, and reporting it as a gap is noise the reader can do nothing with. The
+            // only such gate is the canon's no-grammar drop (a structural principle cannot trace
+            // without a tree), which names itself in the withheld ledger, so this reads that reason
+            // rather than re-deriving it.
+            let inapplicable: std::collections::HashSet<&str> = rules
+                .withheld()
+                .iter()
+                .filter(|(_, gate)| gate.contains("no grammar for this language"))
+                .map(|(id, _)| id.as_str())
+                .collect();
             let o = Overlay {
                 stamp,
-                unenforced: trusted.iter().filter(|id| !compiled.contains(*id)).cloned().collect(),
+                unenforced: trusted
+                    .iter()
+                    .filter(|id| !compiled.contains(*id) && !inapplicable.contains(id.as_str()))
+                    .cloned()
+                    .collect(),
                 concept: ConceptModel::compile(&concept_tuples, lang),
                 rules,
             };

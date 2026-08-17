@@ -489,7 +489,7 @@ pub fn run(args: &Value) -> ToolResult {
     // pre-rendered so the incremental tier can reuse them verbatim (its inputs are
     // provably unchanged when no aux event fired).
     let mut run_footer = String::new();
-    run_footer.push_str(&render_unenforced(&report.unenforced));
+    run_footer.push_str(&render_unenforced(&report.unenforced, &lint_train::corpus_principle_ids(&data)));
     let inert: Vec<String> = lint_train::rule_documents(&root)
         .into_iter()
         .filter(|(_, lang)| lang != "any" && !by_language.contains_key(lang.as_str()))
@@ -657,19 +657,48 @@ pub fn run(args: &Value) -> ToolResult {
 /// Report project-authored rules no detector could be compiled for. The user's law must never
 /// vanish silently — this is the difference between integrating an AI (it says what it cannot do
 /// yet and why) and a compiler dropping input on the floor.
-fn render_unenforced(unenforced: &[(String, String)]) -> String {
-    if unenforced.is_empty() {
-        return String::new();
+fn render_unenforced(unenforced: &[(String, String)], canon: &HashSet<String>) -> String {
+    // TWO POPULATIONS, and only one of them is the user's problem to fix.
+    //
+    // The user's OWN law must never vanish silently — that promise is what this report exists for,
+    // and it is stated per language/id with the actionable remedy, exactly as before.
+    //
+    // A machine-global CANON principle is different in kind: it is shipped data, the same 19
+    // principles for every language, and its honest abstention is a DESIGNED outcome ("rich
+    // aspirational principles are expected to abstain, honestly and named" — native/architecture.dx).
+    // Enumerating it per language turned a 17-item fact into a ~400-line wall in every run's footer
+    // (measured 2026-08-17: 19 ids × ~20 languages), which is how the "399-item backlog" came to
+    // exist as a number. It collapses to ONE line naming each principle ONCE, and the remedy above
+    // does not apply to it — a canon principle is not the user's to rephrase.
+    let (canon_rows, law_rows): (Vec<&(String, String)>, Vec<&(String, String)>) =
+        unenforced.iter().partition(|(_, id)| canon.contains(id));
+    let mut out = String::new();
+    if !law_rows.is_empty() {
+        let ids: Vec<String> = law_rows.iter().map(|(lang, id)| format!("{lang}/{id}")).collect();
+        out.push_str(&format!(
+            "\nProject law not yet enforceable ({}): {}.\nThe rule compiled no detector — its words are \
+             all ordinary English to the reader and its examples (if any) do not differ at token level. \
+             Name the construct in the rule's sentence, give a bad/good example pair that differs in \
+             tokens, or run once online so the language's grammar and docs can be learned.\n",
+            ids.len(),
+            ids.join(", ")
+        ));
     }
-    let ids: Vec<String> = unenforced.iter().map(|(lang, id)| format!("{lang}/{id}")).collect();
-    format!(
-        "\nProject law not yet enforceable ({}): {}.\nThe rule compiled no detector — its words are \
-         all ordinary English to the reader and its examples (if any) do not differ at token level. \
-         Name the construct in the rule's sentence, give a bad/good example pair that differs in \
-         tokens, or run once online so the language's grammar and docs can be learned.\n",
-        ids.len(),
-        ids.join(", ")
-    )
+    if !canon_rows.is_empty() {
+        let mut ids: Vec<&str> = canon_rows.iter().map(|(_, id)| id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        out.push_str(&format!(
+            "\n{} shipped design principle(s) have no structural check on this machine yet — they \
+             ABSTAIN rather than guess: {}.\nThis is honest coverage, not an error: a principle \
+             enforces only where understanding binds it to a structural primitive that proves \
+             itself against the machine's own known-good and known-bad reference code. Nothing for \
+             you to fix.\n",
+            ids.len(),
+            ids.join(", ")
+        ));
+    }
+    out
 }
 
 /// Report doc-learned rules the self-validation pass quarantined: their fire rate against the real
@@ -1314,8 +1343,22 @@ fn fire_shape_render(
     // floor of 20 quarantined the true rule exactly when it was most violated.
     let degenerate =
         |id: &str| models.values().any(|m| m.rules.degenerate_detector(id));
+    // A CANON principle is exempt, for the same reason project law is (above) and for the same
+    // reason a graduated PROVEN construct rule is exempt from the compile-time reference-fire gate:
+    // its witness is a PROOF, not a frequency. It reached the rule set only by firing on the
+    // machine's known-terrible reference and staying clean on the known-excellent one
+    // (`canon_plan_proven`), and a design-rubric violation — like a project-wide convention
+    // violation — legitimately fires everywhere in a project that has it. Measured 2026-08-17:
+    // `1_clean_build_treat_all_warnings_as_errors` was being quarantined on this very repo while
+    // being exactly right (0 hits in a fully documented file; every hit in `lint_codec.rs` a
+    // genuinely undocumented `pub` item), and the quarantine's own advice — "delete its cached
+    // model; the next lint retrains" — is meaningless for a principle read fresh from `corpus/`.
+    let canon = lint_train::corpus_principle_ids(&data_root());
     let quarantined: std::collections::BTreeSet<String> = fires.iter()
         .filter(|((id, lang), &n)| {
+            if canon.contains(*id) {
+                return false;
+            }
             let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
             let (floor, per_mille) = if degenerate(id) { (50, 1000) } else { (20, 100) };
             (n >= floor && n * per_mille > lines) || concentrated.contains(*id)
