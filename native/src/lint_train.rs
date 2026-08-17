@@ -555,53 +555,46 @@ pub(crate) fn canon_agnostic(text: &str) -> String {
     kept
 }
 
-/// The PRINCIPLES of a canon document — its NUMBERED `##` sections and nothing else. A canon
-/// states each principle as one numbered section (`## 1. Clean Build …`, `## 2. Big-O is a design
-/// tool …` — the convention every principle in both shipped canons already follows); everything
-/// outside such a section is the document's own scaffolding, not law: the provenance HTML comment,
-/// the `---` frontmatter block, the `#` title, and the lead paragraph that introduces the list.
+/// The PRINCIPLES of a canon document — its `##` SECTIONS, and nothing before the first one.
 ///
-/// Measured 2026-08-17: without this cut, the reader minted a "principle" out of each of those —
+/// A canon states each principle as a section. Everything ahead of the first section is the
+/// document's own scaffolding, not law: the provenance HTML comment, the `---` frontmatter block,
+/// the `#` title, and the paragraph that introduces the list. Measured 2026-08-17: without this cut
+/// the reader minted a "principle" out of each of those —
 /// `source_users_alexwaldmann_bin_extradocs_software_design_md_this_repo_local_filesystem`,
 /// `applyto_description_universal_software_design_principles`, `software_design_principles`,
 /// `composed_from_knowledge_not_found_verbatim_on` — five junk ids across two files, each then
 /// enumerated per language as "not yet enforceable" and inflating that backlog by ~90 entries.
 /// Nonsense by construction: a file's own provenance comment cannot be a design principle.
 ///
+/// The cut is the SECTION BOUNDARY, deliberately not the section's title. An earlier version of this
+/// function additionally required the heading to be NUMBERED (`## 1.`, `## 2.`), since both shipped
+/// canons happen to number theirs — and the acceptance suite caught it immediately: the
+/// probe-mechanism corpus (`tests/fixtures/probe_principles.md`) NAMES its principles
+/// (`## dead_code_after_return`), so every one of them was silently dropped and the terrible-file
+/// fixture came back CLEAN. A canon's numbering is a house style; being a section is what makes a
+/// principle. The narrower rule bought nothing on the real corpus (both give 12 and 7) and cost the
+/// swappability the canon is supposed to have.
+///
 /// Headings are recognised only OUTSIDE fenced code (a `# comment` inside a Python example is not a
-/// heading), exactly as [`canon_agnostic`] does. A numbered section keeps its deeper (`###`)
-/// subsections; a sibling-or-shallower heading closes it. Applies to CANON only — project law
+/// heading), exactly as [`canon_agnostic`] does. Applies to CANON only — project law
 /// (`.helpers/lint-rules/*.md`) is read whole, where a bare list of instructions is meant to yield
 /// one rule per instruction.
 pub(crate) fn canon_principles(text: &str) -> String {
-    // A principle heading LEADS with its number: `1.`, `2)`, `3 —`. The digits are the marker that
-    // this section is item N of a stated list, which is what makes it a principle rather than prose.
-    let numbered = |title: &str| -> bool {
-        let t = title.trim_start();
-        let digits = t.len() - t.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-        digits > 0 && t[digits..].starts_with(|c: char| !c.is_alphanumeric())
-    };
     let mut kept = String::with_capacity(text.len());
     let mut in_fence = false;
-    let mut keeping: Option<usize> = None; // the heading LEVEL the kept principle began at
+    let mut started = false;
     for line in text.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("```") {
             in_fence = !in_fence;
-        } else if !in_fence {
+        } else if !in_fence && !started {
             let level = trimmed.len() - trimmed.trim_start_matches('#').len();
-            if level > 0 {
-                // A sibling or shallower heading closes the open principle; a deeper one is its own
-                // subsection and rides along.
-                if keeping.is_some_and(|start| level <= start) {
-                    keeping = None;
-                }
-                if keeping.is_none() && level == 2 && numbered(&trimmed[level..]) {
-                    keeping = Some(level);
-                }
+            if level == 2 {
+                started = true;
             }
         }
-        if keeping.is_some() {
+        if started {
             kept.push_str(line);
             kept.push('\n');
         }
