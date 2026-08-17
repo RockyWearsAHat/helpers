@@ -362,6 +362,57 @@ fn a_prose_only_instruction_with_no_code_example_is_enforced() {
     );
 }
 
+/// A prose-only rule naming a RUST MACRO (`` `dbg!` ``, bang-suffixed typography, no bad/good
+/// fences) enforces exactly like the `eval` case above. Regression for a live false negative:
+/// `no_dbg`/`no_todo_macro` were reported by `lint`'s own "Your law, as understood" section as
+/// actively "watching for" `uses_construct(dbg!)`/`uses_construct(todo!)` in a WARM, already-
+/// trained project, yet never fired on a real `dbg!(x)`/`todo!()` call there — verified live
+/// against the real repo four separate ways before this fix (a new file, a staged file, an edit
+/// to an existing tracked file, and again after the fix with a fresh build to confirm the repair).
+/// Root cause: (1) the exact-node-text AST match `uses_construct` relies on can never witness a
+/// bang-suffixed construct (tree-sitter keeps a macro invocation's callee identifier and its `!`
+/// as separate tokens — no single leaf ever spells `dbg!`), fixed in
+/// `lint_trace::scan_macro_invocation`, which targets the `macro_invocation` node's `macro` field
+/// directly; and (2) nothing verified the plan `understand()` proposed from prose alone before
+/// trusting it, closed by `lint_trace::plan_self_verifies`, which proves a proposed plan fires on
+/// a synthetic probe before a rule is allowed to report itself as watched (both are unit-tested
+/// dictionary-independently in `lint_trace::tests::bang_macro_construct_fires_on_real_invocation`
+/// and `lint_trace::tests::plan_self_verifies_accepts_real_shapes_and_rejects_unfireable_ones`,
+/// which exercise the exact `scan_construct`/`plan_self_verifies` machinery without needing a
+/// trained brain).
+///
+/// This HERMETIC harness cannot reach the WARM code path that had the bug: `understand()`
+/// requires a trained char/English "brain" (`lint_char::brain()`), which a fresh, isolated
+/// `HELPERS_LINT_MODELS`/`HOME` never has — so here the rule compiles through the
+/// `desc_detector` TOKEN fallback instead (an independent, always-worked code path, hence the
+/// "watching for" text below reads as a bare backticked token, not `uses_construct(dbg!)`). What
+/// this test proves end to end, through the real binary, is that a project-authored Rust macro
+/// rule with no code example still enforces correctly and stays honest about what it watches;
+/// the doc comment above records where the exact mechanism that was actually broken is covered.
+#[test]
+fn a_prose_only_rust_macro_construct_is_enforced() {
+    let p = TestProject::new("prose-only-macro");
+    p.write(
+        "job.rs",
+        "fn run(x: i32) -> i32 {\n    dbg!(x);\n    x\n}\n",
+    );
+    p.write("safe.rs", "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n");
+    p.write(
+        ".helpers/lint-rules/rust.md",
+        "## no_dbg [high]\nNever leave `dbg!` in committed Rust code; delete the probe before committing.\n",
+    );
+
+    let verdict = p.lint(true);
+
+    assert!(verdict.contains("watching for"), "the rule must report what it watches:\n{verdict}");
+    let job_hit = flagged_in(&verdict, "job.rs", "no_dbg");
+    assert!(job_hit, "the prose-only macro rule must fire on job.rs's dbg! call:\n{verdict}");
+    assert!(
+        !flagged_in(&verdict, "safe.rs", "no_dbg"),
+        "safe.rs has no dbg! and must stay clean:\n{verdict}"
+    );
+}
+
 // ── B4: a new language is a DATA edit ─────────────────────────────────────────
 
 /// Serve a tiny documentation site from localhost: an index linking to one rule-ish page whose

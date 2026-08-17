@@ -588,6 +588,17 @@ impl RuleSet {
                 .as_deref()
                 .filter(|c| !c.is_empty() && has_grammar)
                 .map(|c| crate::lint_trace::Plan::UsesConstruct { construct: c.to_string() });
+            // A plan `understand()` shapes from prose ALONE has no bad/good pair to prove it
+            // against (unlike `learn_verified`'s PROPOSE-VERIFY-LEARN, or `understand_canon`'s
+            // fire-on-known-terrible/clean-on-known-excellent proof) — so it is SELF-checked here:
+            // synthesize the smallest snippet the construct's own shape implies and confirm the
+            // plan actually fires on it before this rule is allowed to report itself as "watching
+            // for" anything (`crate::lint_trace::plan_self_verifies`). A plan that fails falls
+            // through to the SAME token/AST/dropped fallback chain below that already runs for any
+            // other prose that `understand()` cannot shape a plan for — never a bespoke abstain
+            // reason, the existing honest "not yet enforceable" path.
+            let verified_understand =
+                |desc: &str| crate::lint_trace::understand(desc).filter(|p| crate::lint_trace::plan_self_verifies(lang, p));
             let bound_trace = if let Some(plan) = graduated_plan {
                 plan_rule_ids.insert(id.clone());
                 Some(plan)
@@ -612,9 +623,9 @@ impl RuleSet {
                 // `understand` shapes a plan, the token/AST detector below carries it (a rule the
                 // reader knows from examples but understanding cannot yet express structurally).
                 crate::lint_trace::learn_verified(desc, lang, bad, good)
-                    .or_else(|| crate::lint_trace::understand(desc))
+                    .or_else(|| verified_understand(desc))
             } else {
-                crate::lint_trace::understand(desc)
+                verified_understand(desc)
             };
             if is_corpus_principle && bound_trace.is_none() {
                 dropped(id, "corpus principle: understanding abstains (nothing structural to enforce)");

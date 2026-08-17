@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v111-grammarless-partition-and-brain-fallback";
+pub(crate) const TRAIN_VERSION: &str = "docs-v113-macro-invocation-bang-construct-and-self-verify-gate";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips

@@ -385,10 +385,29 @@ fn crawl(cached: Option<Explanations>) -> Explanations {
 /// companions across real explanations. Prose is split into sentence windows (the natural
 /// co-occurrence unit) and each window's content words are observed together. Returns
 /// `(pages, sentences)` read, for the setup report. The caller [`MeaningNetwork::seal`]s afterward.
+///
+/// CROSS-PAGE-INVARIANCE CHROME FILTER applies here too, same as the web curriculum in
+/// [`crate::lint_char::ensure_brain`]: every Stack Overflow question page carries the SAME site
+/// furniture (cookie-consent banner, nav/auth chrome — "sign in", "password", "email", "Google" —
+/// the editor's "Discard"/"Save Edits" toolbar, footer legal boilerplate). Read raw, that furniture
+/// recurs in the SAME sentence window as real content on thousands of pages, so a common English
+/// word the chrome happens to contain ("discard") learns a spurious USAGE proximity to whatever
+/// else the chrome mentions ("password") — contaminating [`crate::lint_char::MeaningNetwork::context_related`],
+/// which corpus/project-law principle understanding leans on for concept alignment
+/// ([`crate::lint_trace::Bridge::compose_unary`]). Discovered from a live misfire: the corpus
+/// principle "Every warning your toolchain emits is a latent bug" (including "Unused variables —
+/// explicitly discard") compiled to `unary(hardcoded_secret)` because "discard" aligned to
+/// `hardcoded_secret` through a learned usage vector carrying "password" — traced to Stack
+/// Overflow's own UI chrome, not the page's answer prose. Stripping first (as the web curriculum
+/// already does) keeps only each page's own distinctive text before it enters the usage graph.
 pub fn learn_into(corpus: &Explanations, net: &mut crate::lint_char::MeaningNetwork) -> (usize, usize) {
+    let pages: Vec<(String, String)> =
+        corpus.pages.iter().map(|p| (p.url.clone(), p.body.clone())).collect();
+    let chrome = crate::lint_graph::site_chrome(&pages);
     let mut sentences = 0usize;
     for page in &corpus.pages {
-        let prose = crate::doc_crawler::extract_prose(&page.body);
+        let body = chrome.strip(&page.url, &page.body);
+        let prose = crate::doc_crawler::extract_prose(&body);
         sentences += net.observe_prose(&prose);
     }
     (corpus.pages.len(), sentences)
@@ -455,6 +474,77 @@ mod tests {
         assert!(
             companions.iter().any(|w| *w == "exception" || *w == "error" || *w == "ignoring"),
             "swallow co-occurs with error-handling vocabulary: {companions:?}"
+        );
+    }
+
+    /// Regression for the live misfire that traced the corpus principle "Every warning your
+    /// toolchain emits is a latent bug" to `unary(hardcoded_secret)`: Stack Overflow's own site
+    /// chrome (the editor's "Discard" toolbar sitting beside an auth modal's "password"/"email"/
+    /// "Google"/"privacy policy" furniture) recurs byte-identical across many pages and, read raw,
+    /// taught the usage graph a spurious "discard" ↔ "password" proximity — even though no page's
+    /// actual answer prose ever puts the two words together. `learn_into` must strip that
+    /// cross-page-invariant chrome (site_chrome, ≥8-page support) before it reaches the usage
+    /// graph, exactly as the web curriculum already does in `lint_char::ensure_brain`.
+    #[test]
+    fn site_chrome_does_not_pollute_usage_context() {
+        let chrome = "<div>Draft saved Discard Sign in with Google email password Privacy Policy Terms of Service</div>";
+        // Nine pages (over CHROME_PAGE_SUPPORT=8): identical chrome, DISTINCT real content that
+        // never mentions "password" near "discard" (or at all).
+        let bodies = [
+            "You can safely discard the temporary buffer once the request completes.",
+            "Discard the cached response if the ETag no longer matches.",
+            "The compiler will discard unreachable branches during optimization.",
+            "It is fine to discard a Result you have already logged.",
+            "The parser can discard whitespace tokens before building the tree.",
+            "Discard the old connection and open a fresh one after a timeout.",
+            "You may discard duplicate rows once the merge is complete.",
+            "The GC will discard unreferenced objects on the next sweep.",
+            "Discard the draft commit and rebase onto the latest main.",
+        ];
+        let corpus = Explanations {
+            fetched_at: 0,
+            pages: bodies
+                .iter()
+                .enumerate()
+                .map(|(i, real)| ExplPage {
+                    url: format!("https://stackoverflow.com/questions/{i}/x"),
+                    body: format!("{chrome}<p>{real}</p>"),
+                    modified: None,
+                    fp: 0,
+                })
+                .collect(),
+        };
+
+        // What the OLD (unfiltered) path learned: chrome read raw, same as every page's prose.
+        let mut raw = crate::lint_char::MeaningNetwork::new();
+        for page in &corpus.pages {
+            let prose = crate::doc_crawler::extract_prose(&page.body);
+            raw.observe_prose(&prose);
+        }
+        raw.seal();
+        let raw_companions: Vec<&str> = raw
+            .usage_words("discard")
+            .map(|u| u.iter().map(|(w, _)| w.as_str()).collect())
+            .unwrap_or_default();
+        assert!(
+            raw_companions.contains(&"password"),
+            "sanity: unfiltered chrome must actually create the spurious co-occurrence this test \
+             guards against — discard's raw companions are {raw_companions:?}"
+        );
+
+        // What the FIXED path learns: chrome stripped first. "password" must never appear as one
+        // of "discard"'s learned companions — it was never in any page's real content, only in the
+        // shared furniture.
+        let mut filtered = crate::lint_char::MeaningNetwork::new();
+        learn_into(&corpus, &mut filtered);
+        filtered.seal();
+        let companions: Vec<&str> = filtered
+            .usage_words("discard")
+            .map(|u| u.iter().map(|(w, _)| w.as_str()).collect())
+            .unwrap_or_default();
+        assert!(
+            !companions.contains(&"password"),
+            "chrome leaked into learned usage: discard's companions are {companions:?}"
         );
     }
 }

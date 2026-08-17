@@ -51,7 +51,12 @@ const MEM_CAP: usize = 8 << 20;
 /// 13: fence role-votes are keyed by the author's own INFO-STRING (native/history.dx rung 1) — ` ```js `,
 /// ` ```plain `, and a bare ` ``` ` are DISTINCT markers, so a tagged code fence earns its own
 /// register separate from an output/`plain` fence; every stale brain rebuilds to the split keying.
-const BRAIN_REV: u64 = 13;
+/// 14: the Stack Overflow explanation corpus is now read through the SAME cross-page-invariance
+/// chrome filter the web curriculum already had ([`crate::lint_socrawl::learn_into`]) — SO's own
+/// site furniture (cookie banner, auth/editor chrome) was leaking into the learned usage graph and
+/// mis-aligning corpus-law principles onto unrelated primitives (e.g. "discard" ↔ `hardcoded_secret`
+/// via a chrome-borrowed "password"); every stale brain rebuilds to the filtered usage sense.
+const BRAIN_REV: u64 = 14;
 
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
