@@ -42,7 +42,7 @@ const RACY_WINDOW_NANOS: u128 = 2_000_000_000;
 fn dir_fold(dir: &Path, exclude: &[&str]) -> Witness {
     let mut entries = scan_dir(dir);
     entries.sort_by(|a, b| a.name.cmp(&b.name));
-    entries.iter().filter(|e| !exclude.contains(&e.name.as_str())).fold(
+    entries.iter().filter(|e| !exclude.contains(&e.name.as_str()) && !is_run_output(&e.name)).fold(
         Witness { fold: 1, newest: 0 },
         |acc, e| Witness {
             fold: acc.fold.rotate_left(9) ^ e.state ^ (crate::lint_ai::token_seed(&e.name) as u128),
@@ -93,6 +93,20 @@ pub fn aux_witness(root: &Path, data: &Path) -> Witness {
         fold: acc.fold.rotate_left(13) ^ w.fold,
         newest: acc.newest.max(w.newest),
     })
+}
+
+/// Whether `name` is a lint run's OWN derived output inside the model dir — a per-project rule
+/// overlay (`<lang>.overlay-<project fingerprint>.bin`). These can never be an INPUT to a lint
+/// decision: an overlay is a pure function of the module, the corpus, the project's law and its
+/// code — every one of which is folded on its own — keyed by the very fingerprint the run computed
+/// before writing it. Folding it made a run invalidate ITSELF: each project change wrote ~18 new
+/// overlay files, which changed the model dir's fold, which killed the memo the next run would have
+/// replayed, which forced a full run, which wrote the overlays again. Measured 2026-08-17: that loop
+/// pinned every edit on this repo to a ~5s full pass with the incremental tier never once engaging.
+/// The racy-NEWEST half of this argument was already made (see [`aux_witness`]); this is the same
+/// argument for the FOLD.
+pub(crate) fn is_run_output(name: &str) -> bool {
+    name.contains(".overlay-")
 }
 
 /// One file's contribution to the walk fold — ORDER-INDEPENDENT (XOR of per-file terms),

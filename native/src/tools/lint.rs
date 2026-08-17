@@ -1354,17 +1354,8 @@ fn fire_shape_render(
     // genuinely undocumented `pub` item), and the quarantine's own advice — "delete its cached
     // model; the next lint retrains" — is meaningless for a principle read fresh from `corpus/`.
     let canon = lint_train::corpus_principle_ids(&data_root());
-    let quarantined: std::collections::BTreeSet<String> = fires.iter()
-        .filter(|((id, lang), &n)| {
-            if canon.contains(*id) {
-                return false;
-            }
-            let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
-            let (floor, per_mille) = if degenerate(id) { (50, 1000) } else { (20, 100) };
-            (n >= floor && n * per_mille > lines) || concentrated.contains(*id)
-        })
-        .map(|((id, _), _)| id.to_string())
-        .collect();
+    let quarantined =
+        quarantined_ids(&fires, &concentrated, &lang_lines, total_lines, &degenerate, &canon);
     for (path, hit, _) in staged.into_iter().filter(|(_, h, _)| !quarantined.contains(&h.rule)) {
         push_hit(&mut reports, &path, hit);
     }
@@ -1458,14 +1449,25 @@ fn kq_arm_and_commit(
 /// repopulates the cache — takes over. Every fallback is the slower sound path.
 fn incremental_run(
     root: &Path,
-    _data: &Path,
+    data: &Path,
     max: usize,
     filter: &Option<BTreeSet<String>>,
     memo_key: &str,
 ) -> Option<String> {
         let t0 = std::time::Instant::now();
     let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
-    let fired = crate::lint_kq::fired_paths(root)?;
+    // DECLINE TRACING: every early return here silently costs a full run, and a silent
+    // fallback is indistinguishable from "the tier is slow". Under HELPERS_LINT_TRACE each
+    // decline names itself.
+    let decline = |why: &str| -> Option<String> {
+        if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
+            eprintln!("[lint-inc] DECLINED: {why}");
+        }
+        None
+    };
+    let Some(fired) = crate::lint_kq::fired_paths(root) else {
+        return decline("no fired set (watch absent or incomplete)");
+    };
     let mut mark_last = std::time::Instant::now();
     let mut mark = move |name: &str| {
         if std::env::var_os("HELPERS_LINT_TRACE").is_some() {
@@ -1474,22 +1476,47 @@ fn incremental_run(
         }
     };
     let mut states = daemon_state().lock().unwrap_or_else(|e| e.into_inner());
-    let st = states.get_mut(root)?;
+    let Some(st) = states.get_mut(root) else {
+        return decline("no cached daemon state for this root");
+    };
     // AUX events reprice the world (models, law, config, feedback, ignore semantics).
     let helpers_dir = root.join(".helpers");
+    // An event OUTSIDE the project — the model dir, the lint-index — is usually a retrain and must
+    // reprice the world. But the lint run itself WRITES into the model dir (one rule overlay per
+    // language, per project fingerprint), and those writes fire the directory's own vnode. Declining
+    // on them made the tier self-defeating: every project change → a full run → ~18 overlay writes →
+    // the model dir fires → the next run declines → another full run, forever. Measured 2026-08-17
+    // on this repo: the incremental tier never engaged once, and every edit cost a ~5-8s full pass.
+    //
+    // The AUX WITNESS is exactly the question "did any real input change" — and it already excludes
+    // this run's own outputs (`lint_replay::is_run_output`). So ask it instead of guessing from the
+    // path: an outside event whose witness is unchanged was our own write, and the cached state is
+    // still valid. Sound because the witness, not the event, is what the full run's memo is keyed on.
+    let mut outside_checked: Option<bool> = None;
     for p in &fired {
-        if !p.starts_with(root) || p.starts_with(&helpers_dir) || st.law_abs.contains(p) {
-            return None;
+        if !p.starts_with(root) {
+            let unchanged = *outside_checked.get_or_insert_with(|| {
+                crate::lint_replay::aux_witness(root, data).fold == st.aux_w.fold
+            });
+            if unchanged {
+                continue;
+            }
+            return decline(&format!("aux event with a changed witness: {}", p.display()));
+        }
+        if p.starts_with(&helpers_dir) || st.law_abs.contains(p) {
+            return decline(&format!("aux/law event: {}", p.display()));
         }
         if matches!(p.file_name().and_then(|n| n.to_str()), Some(".gitignore") | Some(".ignore")) {
-            return None;
+            return decline("ignore-file event");
         }
     }
     // Refresh exactly the fired directories (a fired file refreshes via its parent dir —
     // one bulk syscall re-verifies every sibling for free).
     let dir_set: std::collections::BTreeSet<&PathBuf> = st.dirs.iter().collect();
     let mut rescan: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
-    for p in &fired {
+    // Only paths INSIDE the project describe files to re-lint; an outside event that survived the
+    // witness check above was this run's own artifact write and names nothing to rescan.
+    for p in fired.iter().filter(|p| p.starts_with(root)) {
         if dir_set.contains(p) {
             rescan.insert(p.clone());
         } else {
@@ -1500,7 +1527,7 @@ fn incremental_run(
     let mut changed_idx: Vec<usize> = Vec::new();
     for dir in &rescan {
         if !dir_set.contains(dir) {
-            return None; // a fired path under an unknown dir — structure changed
+            return decline(&format!("fired path under unknown dir: {}", dir.display()));
         }
         // Lazy per-dir index: only this directory's cached files, never a full clone.
         let mut in_dir: HashMap<&Path, usize> = HashMap::new();
@@ -1510,15 +1537,21 @@ fn incremental_run(
             }
         }
         let entries = crate::index::walk::scan_dir(dir);
+        // The walk's own ignore verdict for these exact entries, when its memo is provably current
+        // (safe here: any `.gitignore`/`.ignore` event already declined above). This is what lets an
+        // edit beside an IGNORED file stay on this tier instead of falling back forever.
+        let keep = crate::index::walk::cached_keep(dir, &entries);
+        let ignored = |i: usize| keep.as_ref().is_some_and(|k| k.get(i) == Some(&false));
         let mut updates: Vec<(usize, u128, u128)> = Vec::new(); // (idx, mtime, state)
         let mut seen: HashSet<PathBuf> = HashSet::new();
-        for e in &entries {
+        for (ei, e) in entries.iter().enumerate() {
             let abs = dir.join(&e.name);
             if e.is_dir {
                 if !dir_set.contains(&abs)
                     && !crate::index::walk::SKIP_DIRS.contains(&e.name.as_str())
+                    && !ignored(ei)
                 {
-                    return None; // a NEW directory — the walk owns recursion + ignore law
+                    return decline(&format!("new directory: {}", abs.display()));
                 }
                 continue;
             }
@@ -1532,12 +1565,15 @@ fn incremental_run(
                         updates.push((i, e.mtime, e.state));
                     }
                 }
-                // A NEW file needs the walk's per-dir ignore chain — defer to the full run.
-                None => return None,
+                // Not in the cached set: either the walk always ignored it (fine — skip, exactly as
+                // the walk does) or it is genuinely NEW, which needs the walk's per-directory ignore
+                // chain and the full run that owns it.
+                None if ignored(ei) => {}
+                None => return decline(&format!("new file in a fired dir: {}", abs.display())),
             }
         }
         if in_dir.iter().any(|(abs, _)| !seen.contains(*abs)) {
-            return None; // a deletion — membership changed; the full walk re-owns the set
+            return decline("deletion — membership changed");
         }
         for (i, mtime, state) in updates {
             let f = &mut st.files[i];
@@ -1686,6 +1722,39 @@ fn lint_file_findings(
 /// The self-validation quarantine, computed straight from the verdict cache — identical
 /// thresholds to the full run's pass (per-language denominators, degenerate two-tier,
 /// concentration), because the verdicts ARE the staged findings.
+/// THE quarantine decision, in ONE place. The full pipeline and the incremental tier both need it,
+/// and when each had its own copy they drifted: the canon exemption was added to the full path only,
+/// so an edit silently returned 522 findings where a full run returned 700 — the same project, the
+/// same code, two answers. A rule this small is not worth two implementations.
+///
+/// A rule is quarantined when its fire RATE says it is mislearned: over its own language's lines
+/// (never diluted by other languages), a normal detector at >1% with a floor of 20 fires, a
+/// DEGENERATE one (single token, bare leaf — only statistics vouch for it) at >0.1% with a floor of
+/// 50, or any rule concentrated in one file. Canon principles are exempt: their witness is a proof
+/// against the machine's own reference code, not a frequency, and a design-rubric violation
+/// legitimately fires everywhere in a project that has it.
+fn quarantined_ids(
+    fires: &HashMap<(&str, &str), usize>,
+    concentrated: &HashSet<&str>,
+    lang_lines: &HashMap<&str, usize>,
+    total_lines: usize,
+    degenerate: &dyn Fn(&str) -> bool,
+    canon: &HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    fires
+        .iter()
+        .filter(|((id, lang), &n)| {
+            if canon.contains(*id) {
+                return false;
+            }
+            let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
+            let (floor, per_mille) = if degenerate(id) { (50, 1000) } else { (20, 100) };
+            (n >= floor && n * per_mille > lines) || concentrated.contains(*id)
+        })
+        .map(|((id, _), _)| id.to_string())
+        .collect()
+}
+
 fn quarantine_from_state(
     st: &DaemonState,
     filter: &Option<BTreeSet<String>>,
@@ -1719,15 +1788,8 @@ fn quarantine_from_state(
         .collect();
     let degenerate =
         |id: &str| st.models.values().any(|m| m.rules.degenerate_detector(id));
-    fires
-        .iter()
-        .filter(|((id, lang), &n)| {
-            let lines = lang_lines.get(*lang).copied().unwrap_or(total_lines);
-            let (floor, per_mille) = if degenerate(id) { (50, 1000) } else { (20, 100) };
-            (n >= floor && n * per_mille > lines) || concentrated.contains(*id)
-        })
-        .map(|((id, _), _)| id.to_string())
-        .collect()
+    let canon = lint_train::corpus_principle_ids(&data_root());
+    quarantined_ids(&fires, &concentrated, &lang_lines, total_lines, &degenerate, &canon)
 }
 
 /// Render the report straight from the verdict cache + the state's cached blocks — the
@@ -1803,7 +1865,13 @@ fn kq_watch_set(
         if let Ok(rd) = std::fs::read_dir(&d) {
             for e in rd.flatten() {
                 let name = e.file_name();
-                if name == "lint-verdicts" || name == "lint-replay" {
+                // Derived caches and the run's OWN overlay outputs never inform a run — watching
+                // them made every run arm a watch its own writes immediately dirtied
+                // (`crate::lint_replay::is_run_output`).
+                if name == "lint-verdicts"
+                    || name == "lint-replay"
+                    || crate::lint_replay::is_run_output(&name.to_string_lossy())
+                {
                     continue;
                 }
                 v.push(e.path());
@@ -1934,6 +2002,52 @@ pub fn schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// THE quarantine rule, stated once and tested once — because it used to be stated twice.
+    /// Identical fire statistics must quarantine a doc-learned rule and EXEMPT a canon principle:
+    /// the doc rule's only witness is its fire rate, while the canon principle already proved
+    /// itself against the machine's known-terrible and known-excellent reference code, and a
+    /// design-rubric violation legitimately fires everywhere in a project that has it.
+    ///
+    /// Guards the defect measured 2026-08-17: the full pipeline and the incremental tier each had
+    /// their own copy of this rule, the canon exemption reached only one of them, and the same
+    /// project answered 700 findings on a cold run and 522 after an edit. The copies are now one
+    /// function; this pins its behavior.
+    #[test]
+    fn identical_fire_rates_quarantine_a_learned_rule_and_exempt_a_canon_principle() {
+        let noisy = ("scraped_junk_rule", "rust");
+        let principle = ("1_clean_build_treat_all_warnings_as_errors", "rust");
+        let mut fires: HashMap<(&str, &str), usize> = HashMap::new();
+        fires.insert(noisy, 300);
+        fires.insert(principle, 300);
+        let mut lang_lines: HashMap<&str, usize> = HashMap::new();
+        lang_lines.insert("rust", 1_000); // 30% — far past any tier's bar
+        let concentrated: HashSet<&str> = HashSet::new();
+        let never_degenerate = |_: &str| false;
+        let canon: HashSet<String> = [principle.0.to_string()].into_iter().collect();
+
+        let out = quarantined_ids(&fires, &concentrated, &lang_lines, 1_000, &never_degenerate, &canon);
+        assert!(
+            out.contains(noisy.0),
+            "a doc-learned rule firing on 30% of its language's lines is mislearned noise"
+        );
+        assert!(
+            !out.contains(principle.0),
+            "a canon principle is proven, not sampled — its fire rate must never veto it"
+        );
+
+        // And with no canon set at all (a machine with no corpus), the principle-shaped id is
+        // treated like any other rule: the exemption is data, never a name pattern.
+        let out = quarantined_ids(
+            &fires,
+            &concentrated,
+            &lang_lines,
+            1_000,
+            &never_degenerate,
+            &HashSet::new(),
+        );
+        assert!(out.contains(principle.0), "the exemption comes from the corpus, not from the id's shape");
+    }
 
     #[test]
     fn a_line_quoting_the_rules_own_words_is_a_restatement_not_a_violation() {
