@@ -559,10 +559,13 @@ fn read_scan(scan: Scan, body: &str, reader: &CharReader) -> Vec<PageUnit> {
         if code.trim().len() >= 3 && plausible {
             // Governing prose starts after the LAST boundary before the span — the heading bounds
             // the section and keeps its OWN words (ledger #22: never welded onto the first
-            // sentence).
+            // sentence). A PRECEDING SIBLING CODE RUN is also a boundary: two examples under one
+            // heading (violation then fix — the overwhelmingly common shape) must not have the
+            // second's governing prose weld in the first's own bytes and forbidding sentence, or
+            // the fix reads as bad too and never grounds as reference material.
             let prose_from = (0..i)
                 .rev()
-                .find(|&k| boundary[k])
+                .find(|&k| boundary[k] || in_code[k])
                 .map(|k| scan.gaps[k].end)
                 .unwrap_or(0);
             let prose = governing_tail(&crate::doc_crawler::strip_tags(&body[prose_from..start]));
