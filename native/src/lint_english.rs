@@ -267,16 +267,39 @@ pub fn ensure_built() -> Option<String> {
     Some(report)
 }
 
+/// Every place this machine may keep a dictionary bundle. The system asset containers are
+/// DISCOVERED, never enumerated: macOS renames the container with the OS (`…_dictionaryOSX`
+/// through Darwin 24, `…_dictionary3macOS` on Darwin 25), and a hard-coded name silently
+/// starves the whole meaning network the day it changes — measured 2026-08-17, when the char
+/// brain retrained with zero bound meanings and every corroboration verdict went `None` (see
+/// `native/plan-corroborate-and-enforcement-backlog.dx`). So: any `AssetsV2` child whose name
+/// carries `DictionaryServices` counts, plus the two install locations a user's own dictionaries
+/// land in.
+fn dictionary_roots() -> Vec<PathBuf> {
+    const ASSETS: &str = "/System/Library/AssetsV2";
+    let mut roots: Vec<PathBuf> = std::fs::read_dir(ASSETS)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains("DictionaryServices"))
+        })
+        .collect();
+    roots.sort();
+    roots.push(PathBuf::from("/Library/Dictionaries"));
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Library/Dictionaries"));
+    }
+    roots
+}
+
 /// The best English dictionary body on this machine plus its change fingerprint: prefer the
 /// New Oxford American, else the largest non-localized `Body.data`. Localized variants
 /// (`*.lproj/Body.data`) are other languages — the substrate's baseline is English.
 fn dictionary_body() -> Option<(PathBuf, u64)> {
     let mut candidates: Vec<(u64, PathBuf)> = Vec::new();
-    let roots = [
-        PathBuf::from("/System/Library/AssetsV2/com_apple_MobileAsset_DictionaryServices_dictionaryOSX"),
-        PathBuf::from("/Library/Dictionaries"),
-    ];
-    for root in roots {
+    for root in dictionary_roots() {
         let mut stack = vec![root];
         while let Some(dir) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&dir) else { continue };
@@ -632,6 +655,44 @@ mod tests {
             english.defined.len(),
             english.reader.total_read(),
         );
+    }
+
+    /// The dictionary RESOLVER must find a body wherever this OS keeps it. Guards the exact
+    /// defect measured 2026-08-17: macOS renamed its asset container
+    /// (`…_dictionaryOSX` → `…_dictionary3macOS`), the hard-coded root went empty, and the char
+    /// brain retrained with a completely unbound meaning network — every corroboration verdict
+    /// `None`, silently. The test is an EXISTENCE implication, never a path assertion: if any
+    /// non-localized `Body.data` exists under any discovered root, the resolver must return one
+    /// (and on this machine that must be a real, multi-megabyte dictionary). A machine with no
+    /// dictionary at all skips honestly.
+    #[test]
+    fn dictionary_resolver_finds_a_body_wherever_the_os_keeps_it() {
+        let mut found: Option<PathBuf> = None;
+        for root in dictionary_roots() {
+            let mut stack = vec![root];
+            while let Some(dir) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if p.file_name().is_some_and(|n| n == "Body.data")
+                        && !p.to_string_lossy().contains(".lproj")
+                    {
+                        found = Some(p);
+                    }
+                }
+            }
+        }
+        let Some(on_disk) = found else {
+            eprintln!("skip: this machine keeps no dictionary body");
+            return;
+        };
+        let (path, fp) = dictionary_body()
+            .unwrap_or_else(|| panic!("a dictionary body exists at {} — the resolver must find one", on_disk.display()));
+        assert!(fp != 0, "the fingerprint must carry the body's size and mtime");
+        let len = std::fs::metadata(&path).expect("the resolved body is readable").len();
+        assert!(len > 1 << 20, "a real dictionary body is megabytes, got {len} at {}", path.display());
     }
 
     /// The committed bootstrap must answer the judgment selection ranks with: register and

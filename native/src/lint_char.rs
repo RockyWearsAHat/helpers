@@ -1793,6 +1793,33 @@ mod tests {
         assert!(prose.to_lowercase().contains("goto"), "the calm prose above governs it: {prose:?}");
     }
 
+    /// DEV TOOL — rebuild THIS MACHINE's two global brains (the common-language store and
+    /// `char.global.bin`) in place, from the local dictionary plus the already-cached web
+    /// curriculum, with no network and no per-language retraining:
+    /// `cargo test --release --lib rebuild_machine_brains -- --ignored --nocapture`
+    /// The recovery verb for a starved brain — a machine whose dictionary moved (macOS renames
+    /// its asset container across OS versions) persists a brain with an EMPTY meaning network,
+    /// and every `has`/`centrality`/`definition_words` consumer then degrades silently. Reports
+    /// the bound-meaning count so the recovery is witnessed, not assumed.
+    #[test]
+    #[ignore = "dev tool: rebuilds this machine's global brains in place"]
+    fn rebuild_machine_brains() {
+        let _env = crate::test_env_lock();
+        std::env::set_var("HELPERS_LINT_OFFLINE", "1"); // cached curriculum only, no crawl
+        let english = crate::lint_english::ensure_built();
+        eprintln!("{}", english.as_deref().unwrap_or("common language: NO DICTIONARY FOUND"));
+        let data = crate::tools::lint::data_root_pub();
+        let report = super::ensure_brain(&data).expect("something to learn from");
+        eprintln!("{report}");
+        std::env::remove_var("HELPERS_LINT_OFFLINE");
+        let reloaded = super::load_owned().expect("the rebuilt brain reloads");
+        eprintln!("bound meanings: {}", reloaded.meanings().len());
+        assert!(
+            !reloaded.meanings().is_empty(),
+            "a rebuilt brain must carry the dictionary meaning network — an empty one is the starved-brain defect"
+        );
+    }
+
     /// END-TO-END setup: `ensure_brain` reads this machine's dictionary (English base — no web
     /// sources registered in the temp root, so the curriculum is English alone here), trains,
     /// saves `char.global.bin`, and on a second call REPLAYS ("current") instead of retraining.

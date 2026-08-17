@@ -249,11 +249,29 @@ mod tests {
     use super::*;
     use crate::{lint_char, lint_english};
 
-    /// Both frozen brains, or `None` when an artifact is not on disk (the judge is defined only over the
-    /// real bedrock, so tests observe against it or skip honestly — never fake a pass).
+    /// Both frozen brains, or `None` when the bedrock this judge is defined over is not here (the judge
+    /// observes against the real graph or skips honestly — never fakes a pass).
+    ///
+    /// The MEANING NETWORK's emptiness is part of that check, not just the artifact's presence: measured
+    /// 2026-08-17, a `char.global.bin` can be 45MB of read characters and still carry ZERO bound
+    /// meanings, because `ensure_brain` binds them inside `if let Some(defs) = dictionary_definitions(…)`
+    /// and this machine's dictionary had moved out from under the resolver. Every verdict below then
+    /// reads `None` — six identical assertion failures that say "the judge is broken" when what is
+    /// actually true is "this machine has no dictionary". Skipping names the real cause and the remedy;
+    /// the deterministic guard against the resolver breaking again is
+    /// `lint_english::tests::dictionary_resolver_finds_a_body_wherever_the_os_keeps_it`.
     fn brains() -> Option<(&'static lint_char::CharReader, &'static English)> {
-        Some((lint_char::brain()?, lint_english::brain()?))
+        let (br, en) = (lint_char::brain()?, lint_english::brain()?);
+        if br.meanings().is_empty() {
+            return None;
+        }
+        Some((br, en))
     }
+
+    /// The one skip message, so a starved machine reads as starved instead of broken.
+    const NO_BEDROCK: &str =
+        "skip: no dictionary meaning network on this machine — rebuild with \
+         `cargo test --release --lib rebuild_machine_brains -- --ignored`";
 
     #[test]
     fn revocation_claim_reads_the_measured_truth_table() {
@@ -278,7 +296,7 @@ mod tests {
         // cross-reference separates them: canine's definition contains "dog" (a true is-a edge), bird's
         // does not. A true restatement must corroborate over the same-topic falsehood.
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
@@ -300,7 +318,7 @@ mod tests {
         // directed path cat/mammal ⟶ fish. Against a sibling-level anchor the true generalization
         // corroborates over the false sibling.
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
@@ -317,7 +335,7 @@ mod tests {
         // polarity) over "use eval" (opposite polarity), even though "use eval" shares more words. This is
         // the negation FLIP the flat metric was blind to.
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
@@ -336,7 +354,7 @@ mod tests {
         // Antonyms share defining vocabulary (flat overlap reads them near) but assert opposite properties
         // and share no directed reference path. A near-synonym must corroborate over the antonym.
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
@@ -350,7 +368,7 @@ mod tests {
     #[test]
     fn identical_statement_is_maximally_consistent() {
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
@@ -364,7 +382,7 @@ mod tests {
         // Jargon unknown to English (`eval` alone) yields no content concept — the honest answer is "cannot
         // judge" (None), NOT a false zero-distance match.
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
@@ -379,7 +397,7 @@ mod tests {
         // `"water is a gas"` (which IS reachable). If the frozen graph ever cross-references them, this
         // flips and the native/architecture.dx boundary should be revisited.
         let Some((br, en)) = brains() else {
-            eprintln!("skip: no frozen brains on disk");
+            eprintln!("{NO_BEDROCK}");
             return;
         };
         let m = br.meanings();
