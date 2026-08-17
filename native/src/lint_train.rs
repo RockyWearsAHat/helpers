@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v114-dictionary-resolver-finds-relocated-macos-asset";
+pub(crate) const TRAIN_VERSION: &str = "docs-v115-canon-principles-only-agnostic-and-not-self-fire-gated";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -555,6 +555,60 @@ pub(crate) fn canon_agnostic(text: &str) -> String {
     kept
 }
 
+/// The PRINCIPLES of a canon document — its NUMBERED `##` sections and nothing else. A canon
+/// states each principle as one numbered section (`## 1. Clean Build …`, `## 2. Big-O is a design
+/// tool …` — the convention every principle in both shipped canons already follows); everything
+/// outside such a section is the document's own scaffolding, not law: the provenance HTML comment,
+/// the `---` frontmatter block, the `#` title, and the lead paragraph that introduces the list.
+///
+/// Measured 2026-08-17: without this cut, the reader minted a "principle" out of each of those —
+/// `source_users_alexwaldmann_bin_extradocs_software_design_md_this_repo_local_filesystem`,
+/// `applyto_description_universal_software_design_principles`, `software_design_principles`,
+/// `composed_from_knowledge_not_found_verbatim_on` — five junk ids across two files, each then
+/// enumerated per language as "not yet enforceable" and inflating that backlog by ~90 entries.
+/// Nonsense by construction: a file's own provenance comment cannot be a design principle.
+///
+/// Headings are recognised only OUTSIDE fenced code (a `# comment` inside a Python example is not a
+/// heading), exactly as [`canon_agnostic`] does. A numbered section keeps its deeper (`###`)
+/// subsections; a sibling-or-shallower heading closes it. Applies to CANON only — project law
+/// (`.helpers/lint-rules/*.md`) is read whole, where a bare list of instructions is meant to yield
+/// one rule per instruction.
+pub(crate) fn canon_principles(text: &str) -> String {
+    // A principle heading LEADS with its number: `1.`, `2)`, `3 —`. The digits are the marker that
+    // this section is item N of a stated list, which is what makes it a principle rather than prose.
+    let numbered = |title: &str| -> bool {
+        let t = title.trim_start();
+        let digits = t.len() - t.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        digits > 0 && t[digits..].starts_with(|c: char| !c.is_alphanumeric())
+    };
+    let mut kept = String::with_capacity(text.len());
+    let mut in_fence = false;
+    let mut keeping: Option<usize> = None; // the heading LEVEL the kept principle began at
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+        } else if !in_fence {
+            let level = trimmed.len() - trimmed.trim_start_matches('#').len();
+            if level > 0 {
+                // A sibling or shallower heading closes the open principle; a deeper one is its own
+                // subsection and rides along.
+                if keeping.is_some_and(|start| level <= start) {
+                    keeping = None;
+                }
+                if keeping.is_none() && level == 2 && numbered(&trimmed[level..]) {
+                    keeping = Some(level);
+                }
+            }
+        }
+        if keeping.is_some() {
+            kept.push_str(line);
+            kept.push('\n');
+        }
+    }
+    kept
+}
+
 /// The corpus folder's rules that govern `lang` — see [`corpus_documents`]. Read as CANON: each
 /// document's language-specific appendix is excluded first ([`canon_agnostic`]).
 pub(crate) fn corpus_rules(data_root: &Path, lang: &str) -> Vec<DocRule> {
@@ -616,10 +670,25 @@ fn read_rule_documents(
     let mut out = Vec::new();
     for (path, default_lang) in docs {
         let Ok(doc) = std::fs::read_to_string(path) else { continue };
-        // Canon documents wire only their language-agnostic sections; project law is read whole.
-        let doc = if canon { canon_agnostic(&doc) } else { doc };
+        // Canon documents wire only their language-agnostic sections ([`canon_agnostic`]), and
+        // within those only their numbered principle sections ([`canon_principles`]) — never the
+        // provenance comment, the frontmatter, or the title. Project law is read whole.
+        let doc = if canon { canon_principles(&canon_agnostic(&doc)) } else { doc };
         let source = path.to_string_lossy().into_owned();
-        for r in crate::linter::Knowledge::read_document(default_lang, &doc, polarity.as_deref()).rules {
+        for mut r in crate::linter::Knowledge::read_document(default_lang, &doc, polarity.as_deref()).rules {
+            // A CANON principle's language comes from its DOCUMENT, never from the fence of the
+            // example that illustrates it. The reader's fence-hint rule is right for project law
+            // (a `.md` holding per-language sections) and wrong here: measured 2026-08-17, four
+            // universal CS3500 principles — "2. Validate at System Boundaries" (python),
+            // "4. Comments Explain Why, Not What" (javascript), "5. Return Abstractions, Not
+            // Implementations" (typescript), "6. Never Swallow Exceptions" (java) — were each
+            // scoped to whatever language their one example happened to be written in, in a rubric
+            // whose own first line says it applies to every language. A canon's language-SPECIFIC
+            // material is excluded structurally instead ([`canon_agnostic`]), by heading, so the
+            // sections that survive that cut are agnostic by construction.
+            if canon {
+                r.language = default_lang.to_string();
+            }
             out.push((source.clone(), r));
         }
     }
@@ -2807,6 +2876,118 @@ fn file_state(p: &Path) -> u128 {
 #[cfg(test)]
 mod tests {
     use super::{merge_graduated, DocRule};
+
+    /// CONSERVATION for the canon (the PASS-31 invariant, applied to corpus principles): a canon
+    /// principle whose plan the canon proof ACCEPTED — `understand_canon` returns `Some` only when
+    /// `canon_plan_proven` holds, i.e. the plan fires on the machine's known-terrible reference and
+    /// stays clean on the known-excellent one — must reach the compiled `RuleSet`. It may not be
+    /// silently withheld by a downstream gate.
+    ///
+    /// Measured 2026-08-17: the SELF-FIRE gate was withholding exactly one such principle,
+    /// `6_never_swallow_exceptions`. Its plan proves cleanly, but the gate re-tested it against the
+    /// principle's own bad example — a Java try/catch, a teaching illustration — while compiling for
+    /// Rust. A Java snippet is not Rust, so the detector "missed its own bad example" and a proven
+    /// principle vanished with no user-visible reason. The gate is right for detectors DERIVED from
+    /// an example and wrong for a plan proven against the canon reference pair.
+    ///
+    /// Skips honestly when this machine has no meaning network (understanding cannot run at all —
+    /// see `lint_corroborate`'s `brains()` for the same contract and why it exists).
+    #[test]
+    fn a_proven_canon_principle_is_never_withheld_by_a_compile_gate() {
+        let Some(brain) = crate::lint_char::brain() else {
+            eprintln!("skip: no character brain on this machine");
+            return;
+        };
+        if brain.meanings().is_empty() {
+            eprintln!("skip: no dictionary meaning network — understanding cannot run");
+            return;
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let docs: Vec<(std::path::PathBuf, String)> = ["cs3500-rubric.md", "cs2420-principles.md"]
+            .iter()
+            .map(|n| (root.join("corpus").join(n), "any".to_string()))
+            .collect();
+        let read = super::read_rule_documents(&docs, true);
+        let proven: Vec<&str> = read
+            .iter()
+            .filter(|(_, r)| crate::lint_trace::understand_canon(&r.description).is_some())
+            .map(|(_, r)| r.id.as_str())
+            .collect();
+        assert!(!proven.is_empty(), "the canon must bind at least one proven principle");
+        let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = read
+            .iter()
+            .map(|(source, r)| {
+                (
+                    r.id.clone(),
+                    r.severity.clone(),
+                    r.bad.clone(),
+                    r.good.clone(),
+                    r.description.clone(),
+                    source.clone(),
+                    r.construct.clone(),
+                )
+            })
+            .collect();
+        let trusted: std::collections::HashSet<String> = read.iter().map(|(_, r)| r.id.clone()).collect();
+        let ground = crate::lint_match::Grounding { trusted, ..Default::default() };
+        let set = crate::lint_match::RuleSet::build("rust", &tuples, &ground);
+        let compiled: std::collections::HashSet<&str> = set.rule_ids().collect();
+        for id in proven {
+            assert!(
+                compiled.contains(id),
+                "canon principle {id:?} passed the canon proof but never reached the rule set — a \
+                 compile gate withheld it silently. Compiled: {:?}",
+                compiled
+            );
+        }
+    }
+
+    /// The CANON READER mints one rule per stated principle and NOTHING else. Pins the exact
+    /// composition of the two shipped canons — 12 numbered principles in `cs3500-rubric.md`, 7 in
+    /// `cs2420-principles.md` — because the count is the whole point: before this cut the reader
+    /// minted 18 and 9, the extras being each file's provenance HTML comment, its YAML-ish
+    /// frontmatter, its `#` title, and orphan sentence fragments trailing a section's code example.
+    /// Those junk ids were then enumerated per language (×18 languages) as "not yet enforceable",
+    /// inflating that backlog by roughly 90 entries and producing nonsense like
+    /// `svg/2_big_o_is_a_design_tool_not_a_post_hoc_grade` — Big-O has no meaning for an icon file.
+    ///
+    /// Also pins that a canon principle is LANGUAGE-AGNOSTIC: its id must not be scoped by the
+    /// fence of the example illustrating it (four CS3500 principles used to come back as python /
+    /// javascript / typescript / java for exactly that reason).
+    #[test]
+    fn canon_reader_mints_one_rule_per_stated_principle_and_nothing_else() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let expected: [(&str, usize); 2] = [("cs3500-rubric.md", 12), ("cs2420-principles.md", 7)];
+        for (name, want) in expected {
+            let path = root.join("corpus").join(name);
+            let Ok(doc) = std::fs::read_to_string(&path) else {
+                panic!("the shipped canon {name} must be readable at {}", path.display());
+            };
+            assert!(!doc.is_empty(), "{name} is empty");
+            // Through the REAL canon path — `canon_agnostic` → `canon_principles` → the one
+            // document reader → the canon language rule — not a reconstruction of it.
+            let read = super::read_rule_documents(&[(path.clone(), "any".to_string())], true);
+            let rules: Vec<&crate::linter::LearnedRule> = read.iter().map(|(_, r)| r).collect();
+            let ids: Vec<&str> = rules.iter().map(|r| r.id.as_str()).collect();
+            assert_eq!(rules.len(), want, "{name} states {want} principles, got {}: {ids:?}", rules.len());
+            // Every id is a NUMBERED principle's slug — `1_…` through `N_…`, in order. Anything
+            // else is scaffolding that leaked back in.
+            for (i, r) in rules.iter().enumerate() {
+                let n = i + 1;
+                assert!(
+                    r.id.starts_with(&format!("{n}_")),
+                    "{name} rule {n} must be the numbered principle {n}, got id {:?}",
+                    r.id
+                );
+                assert!(
+                    r.language.is_empty() || r.language == "any",
+                    "{name} principle {:?} is universal — it must not be scoped to {:?} by its example's fence",
+                    r.id,
+                    r.language
+                );
+            }
+        }
+    }
 
     /// A minimal ledger-shaped [`DocRule`] keyed by construct `id` and its `source` page.
     fn ledger_rule(id: &str, source: &str) -> DocRule {
