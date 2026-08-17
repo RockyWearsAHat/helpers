@@ -1293,9 +1293,33 @@ fn canon_plan_proven(plan: &Plan) -> bool {
 /// (see [`Bridge::understand_canon`]): a canon principle enforces through a structural primitive or
 /// abstains honestly, and never mints `uses_construct` on an incidental noun it merely mentions.
 pub fn understand_canon(description: &str) -> Option<Plan> {
-    let char_brain = crate::lint_char::brain()?;
-    let english = crate::lint_english::brain()?;
-    Bridge::new(char_brain.meanings(), english).understand_canon(description)
+    // MEMOIZED per description, process-wide. Understanding a canon principle is PURE in
+    // (description, the loaded brains): it walks the meaning graph to align concepts, then proves
+    // the candidate plan by running it over the two reference files. Both inputs are fixed for the
+    // process — the brains load once into a `OnceLock` and the canon is the same 19 principles for
+    // every language — yet this was recomputed once per principle PER LANGUAGE, and again on every
+    // project change, because the per-language overlay it feeds is keyed by the project's
+    // fingerprint. That was invisible while the meaning network was empty (an unbound graph aligns
+    // nothing and returns instantly); with the dictionary restored (PASS 46) the same work became
+    // real, and a content edit on this repo cost 4.7s of re-understanding the identical 19
+    // principles ~20 times over. The memo is the whole fix — the machine-global canon is computed
+    // machine-globally, not per project and not per language.
+    static MEMO: std::sync::Mutex<Option<std::collections::HashMap<u64, Option<Plan>>>> =
+        std::sync::Mutex::new(None);
+    let key = crate::lint_ai::token_seed(description);
+    if let Some(hit) = MEMO.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&key)) {
+        return hit.clone();
+    }
+    let plan = (|| {
+        let char_brain = crate::lint_char::brain()?;
+        let english = crate::lint_english::brain()?;
+        Bridge::new(char_brain.meanings(), english).understand_canon(description)
+    })();
+    MEMO.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(Default::default)
+        .insert(key, plan.clone());
+    plan
 }
 
 /// EXPLAIN understanding applied to `description` through the machine's loaded brains — the step

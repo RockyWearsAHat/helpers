@@ -464,6 +464,27 @@ fn names_fold(entries: &[ScanEntry]) -> u128 {
     })
 }
 
+/// The walk's OWN keep/ignore decision for `dir`'s entries — but only when the walk's memo is
+/// PROVABLY current for them: same names, same kinds, same order (any rename, addition, removal or
+/// kind flip changes [`names_fold`] and this returns `None`). `None` means "ask the full walk",
+/// never "assume".
+///
+/// This exists so the incremental lint tier can tell a file the walk ALWAYS IGNORED from a genuinely
+/// new source file. Without it, one ignored file in a directory (a binary, a symlink, a gitignored
+/// artifact) made every edit in that directory fall back to a full run forever — measured 2026-08-17
+/// at the root of this repo, which holds exactly such files.
+///
+/// PRECONDITION, and why the ignore-chain fingerprint is not re-checked here: the caller must
+/// already have established that no `.gitignore`/`.ignore` changed since the walk that populated
+/// this memo. The incremental tier does exactly that — it declines on any ignore-file event before
+/// reaching this — so the chain cannot have moved under the decision. A caller without that
+/// guarantee must not use this.
+pub fn cached_keep(dir: &Path, entries: &[ScanEntry]) -> Option<Vec<bool>> {
+    let fold = names_fold(entries);
+    let cache = decision_cache().lock().unwrap_or_else(|e| e.into_inner());
+    cache.get(dir).filter(|d| d.names_fold == fold).map(|d| d.keep.clone())
+}
+
 /// Scan one directory: keep its files, recurse into its subdirectories on the rayon pool,
 /// and fold the results upward — no shared collector, deterministic after the caller's
 /// final sort.
