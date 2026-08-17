@@ -1462,13 +1462,27 @@ pub fn run_plan(plan: &Plan, lang: &str, code: &str) -> Vec<usize> {
 /// acceptance-proven live already (PASS 35/37) and a probe that misrepresented markup structure
 /// would risk a false "not yet enforceable" on a rule that already works, which is a worse failure
 /// than the one this gate exists to catch — so those pass through unverified, same as before this
-/// gate existed. Primitive-composed plans (`Unary`/`Relational`/`PresentWithout`) shaped from prose
-/// with no example are ALSO not verified here: proving those needs synthetic code exhibiting an
-/// arbitrary structural defect (what [`understand_canon`] does with one hand-built, Rust-only
-/// reference file), which is real, separate work — always returns `true` for them, i.e. unchanged
-/// behavior, not a silent narrowing of what this specific gate claims to close.
+/// gate existed.
+///
+/// Primitive-composed plans (`Unary`/`Relational`/`PresentWithout`) reuse [`canon_plan_proven`] —
+/// the SAME fire-bad/clean-good proof the canon path already requires of these exact plan shapes,
+/// on the SAME reasoning its own doc comment states: the primitives are structural, so proving one
+/// against real bad/good Rust code earns the SHAPE the right to fire in any language, the identical
+/// stance this codebase already ships for `understand_canon`. Closing THIS half of the gap matters
+/// on its own: `understand()` (unlike `understand_canon`) never suppressed the construct fallback,
+/// but a general/language-doc prohibition can still align to a primitive composition instead of a
+/// construct (a rule reading "never leave a function undocumented" binds `present_without` exactly
+/// like a canon principle would) — and before this, THAT unverified claim could fire the identical
+/// "watching for X, never actually tested" bug the construct half of this gate was built to catch.
+/// `canon_plan_proven` ignores the `lang` argument entirely and always proves against the Rust
+/// reference pair (deliberately — see its own doc comment): a primitive-composed plan self-verifies
+/// identically for every language, the same "prove the shape once, trust it everywhere" stance this
+/// codebase already ships for `understand_canon`. What actually distinguishes ACCEPT from REJECT
+/// here is whether the composition can tell bad from good AT ALL — an over-broad shape (e.g. "any
+/// statement" with no self-bad predicate) fires on the excellent reference too and fails clean-good,
+/// so it still correctly abstains, just not on a language axis.
 pub(crate) fn plan_self_verifies(lang: &str, plan: &Plan) -> bool {
-    let Plan::UsesConstruct { construct } = plan else { return true };
+    let Plan::UsesConstruct { construct } = plan else { return canon_plan_proven(plan) };
     if construct.starts_with(':') || construct.starts_with('<') || construct.contains('@') {
         return true;
     }
@@ -2440,6 +2454,68 @@ mod tests {
             let plan = Plan::UsesConstruct { construct: construct.to_string() };
             assert!(plan_self_verifies("html", &plan), "markup shape must pass through unverified: {construct}");
         }
+    }
+
+    /// THE SIBLING GATE: `plan_self_verifies` now proves `Unary`/`Relational`/`PresentWithout`
+    /// plans too, not just `UsesConstruct` — closing the other half of the same live bug class
+    /// (a plan `understand()` proposed from prose alone, confidently reported as "watching for X",
+    /// never actually tested). A general/language-doc prohibition ("never leave a public item
+    /// undocumented") can align to a primitive composition exactly like a canon principle does —
+    /// `understand()`'s construct fallback being unsuppressed doesn't stop that from happening —
+    /// so it needed the same proof `understand_canon` already requires.
+    #[test]
+    fn primitive_composed_plans_self_verify_via_the_canon_proof() {
+        let public_item = PREDICATES.iter().position(|p| p.name == "public_item").expect("pred");
+        let documented = PREDICATES.iter().position(|p| p.name == "documented").expect("pred");
+        let unwrap_call = PREDICATES.iter().position(|p| p.name == "unwrap_call").expect("pred");
+        let statement = PREDICATES.iter().position(|p| p.name == "statement").expect("pred");
+        let control_exit = PREDICATES.iter().position(|p| p.name == "control_exit").expect("pred");
+        let follows = RELATIONS.iter().position(|r| r.name == "follows_in_block").expect("rel");
+
+        // ACCEPT (rust): "a public item present without documentation" fires on the reference
+        // TERRIBLE file's undocumented `pub fn handle`/`pub fn run_shell`/etc. and stays clean on
+        // the reference EXCELLENT file's fully-documented public items — the exact proof
+        // `understand_canon` already demands of this exact plan shape.
+        let present_without = Plan::PresentWithout { present: vec![public_item], absent: vec![documented] };
+        assert!(
+            plan_self_verifies("rust", &present_without),
+            "present_without(public_item \\ documented) must self-verify true for rust: proven by the canon reference pair"
+        );
+
+        // ACCEPT (rust): a bare `.unwrap()`/`.expect()` call is a self-bad Unary shape, proven by
+        // the TERRIBLE file's `"12".parse().unwrap()` and absent from the EXCELLENT file.
+        let unary = Plan::Unary(vec![unwrap_call]);
+        assert!(plan_self_verifies("rust", &unary), "unary(unwrap_call) must self-verify true for rust");
+
+        // ACCEPT (rust): a statement FOLLOWING a control-exit (dead code after `return`) is a
+        // Relational shape, proven by the TERRIBLE file's unreachable `let leftover = x * 3;`
+        // after `return x + x;`.
+        let relational = Plan::Relational { rel: follows, a_pred: statement, b_pred: control_exit };
+        assert!(
+            plan_self_verifies("rust", &relational),
+            "relational(follows_in_block: statement after control_exit) must self-verify true for rust"
+        );
+
+        // The proof is LANG-INDEPENDENT by design, matching `understand_canon`'s own stance: the
+        // reference is Rust because the primitives are structural, and proving the shape sound
+        // against real bad/good code in one grammar earns it the right to fire in any — so the
+        // SAME plan self-verifies identically no matter which language argument is passed. This is
+        // the precedent `canon_plan_proven` already established; this test only confirms the
+        // general (non-canon) path now defers to the identical proof instead of trusting blind.
+        for lang in ["python", "javascript", "go"] {
+            assert!(plan_self_verifies(lang, &present_without), "self-verify is lang-independent for {lang}");
+        }
+
+        // REJECT: an over-broad Unary("any statement") composition fires on virtually every line
+        // of BOTH reference files — it cannot distinguish bad from good — so clean-good fails and
+        // it cannot self-verify. This is the load-bearing case: before this fix, a prose-only rule
+        // that happened to bind a primitive composition this indiscriminate would have reported
+        // itself as actively enforcing with zero proof it ever distinguished anything.
+        let over_broad = Plan::Unary(vec![statement]);
+        assert!(
+            !plan_self_verifies("rust", &over_broad),
+            "unary(statement) is not self-bad and must fail clean-good: it fires on the excellent reference too"
+        );
     }
 
     /// RECEIVER-GENERIC MEMBER construct (`.substr`) + the CROSS-LANGUAGE partition gates (owner Item 1:
