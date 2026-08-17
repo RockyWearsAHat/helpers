@@ -1445,6 +1445,43 @@ pub fn run_plan(plan: &Plan, lang: &str, code: &str) -> Vec<usize> {
     hits
 }
 
+/// SELF-VERIFY a plan `understand()` shaped from prose ALONE, with no bad/good example to prove it
+/// against (the general/prose-only branch in [`crate::lint_match`]'s rule compiler — the one path
+/// that, unlike [`Bridge::understand_verified`] and [`Bridge::understand_canon`], previously
+/// accepted whatever plan it proposed with no check that it could ever fire on anything real).
+/// Live bug this closes: a project rule naming a Rust macro (`` `dbg!` ``) shaped
+/// `uses_construct(dbg!)`, was reported as actively "watching for" it, and never fired — the
+/// matcher's bang-shape gap ([`scan_macro_invocation`]) went undetected because nothing tested the
+/// proposed plan against real code before trusting it.
+///
+/// Scope: proves [`Plan::UsesConstruct`] by synthesizing the smallest snippet that plausibly
+/// contains the construct in the shape [`scan_construct`] actually reaches by AST position (a bare
+/// reference for a plain identifier or dotted path, a receiver call for a `.member`, an invocation
+/// for a `name!` macro) and confirming the plan fires on it. A markup-typography construct
+/// (leading `:`/`<...>`/a `host@attr` pair) is NOT synthesized here — those shapes are
+/// acceptance-proven live already (PASS 35/37) and a probe that misrepresented markup structure
+/// would risk a false "not yet enforceable" on a rule that already works, which is a worse failure
+/// than the one this gate exists to catch — so those pass through unverified, same as before this
+/// gate existed. Primitive-composed plans (`Unary`/`Relational`/`PresentWithout`) shaped from prose
+/// with no example are ALSO not verified here: proving those needs synthetic code exhibiting an
+/// arbitrary structural defect (what [`understand_canon`] does with one hand-built, Rust-only
+/// reference file), which is real, separate work — always returns `true` for them, i.e. unchanged
+/// behavior, not a silent narrowing of what this specific gate claims to close.
+pub(crate) fn plan_self_verifies(lang: &str, plan: &Plan) -> bool {
+    let Plan::UsesConstruct { construct } = plan else { return true };
+    if construct.starts_with(':') || construct.starts_with('<') || construct.contains('@') {
+        return true;
+    }
+    let probe = if let Some(name) = construct.strip_suffix('!') {
+        format!("{name}!(__probe_arg);\n")
+    } else if let Some(property) = construct.strip_prefix('.') {
+        format!("__probe_recv.{property}();\n")
+    } else {
+        format!("{construct};\n")
+    };
+    !run_plan(plan, lang, &probe).is_empty()
+}
+
 // ── Generic tree helpers ───────────────────────────────────────────────────────
 
 /// The 1-based row a node starts on.
@@ -1534,6 +1571,18 @@ fn scan_construct(node: Node, src: &[u8], construct: &str, hits: &mut Vec<usize>
             return;
         }
     }
+    // MACRO-INVOCATION shape (a construct written `name!`, the language's own bang typography for
+    // a macro call — `dbg!`, `todo!`, `unreachable!`, any macro): the exact-node-text match below
+    // can never witness it. Tree-sitter never mints one leaf spelling `name!` — a macro invocation
+    // node's `macro` field is a bare identifier (or path) sibling to a SEPARATE `!` token (measured:
+    // `dbg!(x)` parses to `macro_invocation(macro: (identifier) "!" (token_tree))`, the identifier's
+    // own text is `dbg`) — so this targets the node KIND and its `macro` field by name, the same way
+    // the `.member`/`<element>`/`host@attr` shapes above target a field or position the exact-text
+    // match structurally cannot reach. General over every bang-suffixed name, never a per-macro list.
+    if let Some(name) = construct.strip_suffix('!') {
+        scan_macro_invocation(node, src, name, hits);
+        return;
+    }
     if is_lexical_text(node.kind()) {
         return;
     }
@@ -1593,6 +1642,31 @@ fn scan_host_attr(node: Node, src: &[u8], host: &str, attr: &str, hits: &mut Vec
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         scan_host_attr(child, src, host, attr, hits);
+    }
+}
+
+/// Record every macro invocation whose macro name is exactly `name` (sub-part of [`scan_construct`]
+/// for a `name!`-typed construct). Matches the `macro_invocation` node's `macro` field directly —
+/// never the generic exact-node-text match, which cannot see this shape at all (no leaf spells the
+/// name with its `!` attached). Also accepts a path-qualified call (`std::dbg!` matching `dbg!`) by
+/// comparing the field's LAST `::`-segment, mirroring how a plain identifier construct already
+/// matches regardless of import path elsewhere in this file. A match stops the descent AT the
+/// invocation (its own args are the macro's business, not a second construct site); a non-match
+/// still descends, so a macro nested inside another's arguments is still found.
+fn scan_macro_invocation(node: Node, src: &[u8], name: &str, hits: &mut Vec<usize>) {
+    if node.kind() == "macro_invocation" {
+        let hit = node
+            .child_by_field_name("macro")
+            .and_then(|callee| callee.utf8_text(src).ok())
+            .is_some_and(|text| text == name || text.rsplit("::").next() == Some(name));
+        if hit {
+            hits.push(row(node));
+            return;
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        scan_macro_invocation(child, src, name, hits);
     }
 }
 
@@ -2279,6 +2353,95 @@ mod tests {
         assert!(bridge.enforce(dw_prose, "javascript", "el.append(node);").is_empty(), "clean on el.append");
     }
 
+    /// MACRO-INVOCATION construct shape (`name!`): a `uses_construct` plan whose target is a Rust
+    /// macro call — the author's own bang typography, exactly what a backticked `` `dbg!` `` in a
+    /// project rule's prose extracts to. Regression for a live false negative: `dbg!`/`todo!` were
+    /// reported by `lint`'s own "watching for" line as actively enforced, yet never fired on real
+    /// `dbg!(x)`/`todo!()` code, because the generic exact-node-text match in [`scan_construct`]
+    /// can never witness a bang-suffixed construct — tree-sitter's `macro_invocation` node keeps the
+    /// callee identifier (`dbg`) and its `!` as separate tokens, so no single AST leaf ever spells
+    /// `dbg!`. No local dictionary needed — this drives [`run_plan`] directly against a hand-built
+    /// `Plan::UsesConstruct`, the same plan `understand()` would shape from that prose, isolating the
+    /// AST-matching layer from the English-understanding layer above it.
+    ///
+    /// GENERALITY: also proven on `unreachable!` — a macro name absent from the original bug report
+    /// (only `dbg!`/`todo!`/`unimplemented!` were seen failing) — so the fix is a general macro-shape
+    /// recognizer, not a lookup table of the three names that happened to be in this repo's rule file.
+    #[test]
+    fn bang_macro_construct_fires_on_real_invocation() {
+        for name in ["dbg", "todo", "unreachable"] {
+            let plan = Plan::UsesConstruct { construct: format!("{name}!") };
+            let bad = format!("fn f(x: i32) -> i32 {{\n    {name}!(x)\n}}\n");
+            let hits = run_plan(&plan, "rust", &bad);
+            assert!(hits.contains(&2), "{name}! must fire on its own invocation line: {hits:?}\n{bad}");
+
+            // Clean code naming the macro only as prose/identifier text (not a real invocation)
+            // must NOT fire — the fix targets the macro_invocation AST shape, not a text scan.
+            let clean = format!("fn f(x: i32) -> i32 {{\n    // do not call {name} macros here\n    x\n}}\n");
+            assert!(run_plan(&plan, "rust", &clean).is_empty(), "{name} named only in a comment must stay clean");
+        }
+
+        // Path-qualified call still matches by its last `::`-segment, same as a plain identifier
+        // construct matches regardless of import path.
+        let plan = Plan::UsesConstruct { construct: "dbg!".to_string() };
+        let qualified = "fn f(x: i32) -> i32 {\n    std::dbg!(x)\n}\n";
+        assert!(run_plan(&plan, "rust", qualified).contains(&2), "std::dbg! still matches dbg!: qualified call");
+
+        // A DIFFERENT macro invocation must not cross-fire.
+        let other = "fn f(x: i32) -> i32 {\n    todo!()\n}\n";
+        assert!(run_plan(&plan, "rust", other).is_empty(), "todo! must not fire the dbg! construct");
+    }
+
+    /// SELF-VERIFICATION GATE (the architectural fix, not just the macro-shape patch): a
+    /// `Plan::UsesConstruct` `understand()` proposes from prose ALONE must PROVE it can fire on
+    /// something real before [`crate::lint_match`]'s rule compiler accepts it — the gap that let
+    /// `no_dbg`/`no_todo_macro` report themselves as actively "watching for" a construct that
+    /// never once fired (nothing had tested the proposed plan against real code). This is the
+    /// mechanism-level proof, independent of any one macro name: every working shape self-verifies
+    /// true, and a construct whose typography [`scan_construct`] genuinely cannot represent as any
+    /// single AST node self-verifies false — which is what routes a rule like that to this
+    /// codebase's EXISTING "not yet enforceable" honest-abstain path in
+    /// `crate::lint_match::mod`'s compiler (unchanged by this fix: a `None` plan already fell
+    /// through to that reporting before this gate existed; this gate only decides which plans are
+    /// allowed to reach `Some` in the first place).
+    #[test]
+    fn plan_self_verifies_accepts_real_shapes_and_rejects_unfireable_ones() {
+        // ACCEPT: every shape this fix (or the pre-existing matcher) can actually represent as one
+        // AST node fires on its own minimal synthetic probe.
+        for construct in ["dbg!", "unreachable!", "eval", ".substr", "document.write"] {
+            let plan = Plan::UsesConstruct { construct: construct.to_string() };
+            assert!(
+                plan_self_verifies("rust", &plan) || plan_self_verifies("javascript", &plan),
+                "a real construct shape must self-verify true on at least one grammar it targets: {construct}"
+            );
+        }
+
+        // REJECT: a backticked construct whose punctuation can never cohere into one AST leaf's
+        // text (tree-sitter always tokenizes `%` as its own operator token) is genuinely
+        // unfireable — the self-check must say so, not silently trust the extraction.
+        let unfireable = Plan::UsesConstruct { construct: "%%%unfireable%%%".to_string() };
+        assert!(
+            !plan_self_verifies("rust", &unfireable),
+            "punctuation-soup that can never be one AST leaf must fail self-verification"
+        );
+        // Independently confirm the probe really finds nothing (not just an API-shape check) —
+        // this IS what plan_self_verifies tests internally, spelled out for the reader.
+        assert!(
+            run_plan(&unfireable, "rust", "%%%unfireable%%%;\n").is_empty(),
+            "sanity: the punctuation-soup probe truly matches no node"
+        );
+
+        // Markup-typography shapes (pseudo-selector/element/attribute) are intentionally NOT
+        // synthesized by this gate (comment on `plan_self_verifies` explains why) — they pass
+        // through unverified, same as before this gate existed. Prove that stays true so a future
+        // change to this gate cannot silently start rejecting the PASS 35/37 shapes that are
+        // already acceptance-proven live.
+        for construct in ["<frame>", "::-moz-focus-inner", "table@frame"] {
+            let plan = Plan::UsesConstruct { construct: construct.to_string() };
+            assert!(plan_self_verifies("html", &plan), "markup shape must pass through unverified: {construct}");
+        }
+    }
+
     /// RECEIVER-GENERIC MEMBER construct (`.substr`) + the CROSS-LANGUAGE partition gates (owner Item 1:
     /// QUALIFIED-MEMBER extraction; the leak fixes). Uses only the bundled JS grammar — no dictionary.
     #[test]
@@ -2498,5 +2661,7 @@ mod tests {
         );
     }
 }
+
+
 
 
