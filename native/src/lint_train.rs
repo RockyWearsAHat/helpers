@@ -60,7 +60,7 @@ pub struct LangModel {
 pub(crate) const MAX_CRAWL_PAGES: usize = usize::MAX / 16;
 
 /// Bump when the training logic changes so existing caches are treated as stale and relearned.
-pub(crate) const TRAIN_VERSION: &str = "docs-v115-canon-principles-only-agnostic-and-not-self-fire-gated";
+pub(crate) const TRAIN_VERSION: &str = "docs-v116-canon-principles-only-agnostic-proven-and-code-languages-only";
 
 /// The minimum number of PROVEN construct rules the construct-module workflow
 /// ([`crate::lint_module::graduated_rules`]) must graduate for a language before the MODULE seam flips
@@ -2876,6 +2876,66 @@ fn file_state(p: &Path) -> u128 {
 #[cfg(test)]
 mod tests {
     use super::{merge_graduated, DocRule};
+
+    /// A CODE-DESIGN principle governs code the machine can actually PARSE, and nothing else. A canon
+    /// principle enforces only through the trace bridge, and `run_plan` walks a parsed tree — so for a
+    /// language with no grammar there is no tree, the plan can never fire, and compiling it would be a
+    /// rule that reports itself as enforcing while being physically unable to. Measured 2026-08-17:
+    /// before this cut, all 19 principles were enumerated for `svg` and `json` exactly as for `rust`,
+    /// which is where nonsense like `svg/2_big_o_is_a_design_tool_not_a_post_hoc_grade` came from —
+    /// Big-O has no meaning for an icon file.
+    ///
+    /// The gate is the machine's OWN answer to "can I parse this language" (`RuleSet::build`'s
+    /// `has_grammar`), never a coded list of data extensions — this repo's no-coded-list law — so it
+    /// stays correct as grammars are added or acquired.
+    #[test]
+    fn a_code_design_principle_reaches_code_languages_only() {
+        let Some(brain) = crate::lint_char::brain() else {
+            eprintln!("skip: no character brain on this machine");
+            return;
+        };
+        if brain.meanings().is_empty() {
+            eprintln!("skip: no dictionary meaning network — understanding cannot run");
+            return;
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let docs: Vec<(std::path::PathBuf, String)> = ["cs3500-rubric.md", "cs2420-principles.md"]
+            .iter()
+            .map(|n| (root.join("corpus").join(n), "any".to_string()))
+            .collect();
+        let read = super::read_rule_documents(&docs, true);
+        let tuples: Vec<(String, String, String, String, String, String, Option<String>)> = read
+            .iter()
+            .map(|(source, r)| {
+                (
+                    r.id.clone(),
+                    r.severity.clone(),
+                    r.bad.clone(),
+                    r.good.clone(),
+                    r.description.clone(),
+                    source.clone(),
+                    r.construct.clone(),
+                )
+            })
+            .collect();
+        let trusted: std::collections::HashSet<String> = read.iter().map(|(_, r)| r.id.clone()).collect();
+        let ground = crate::lint_match::Grounding { trusted, ..Default::default() };
+        // A language the machine can parse gets the principles it proved.
+        let code = crate::lint_match::RuleSet::build("rust", &tuples, &ground);
+        assert!(
+            code.rule_ids().next().is_some(),
+            "a code language must still carry the canon principles that proved"
+        );
+        // A data format gets NONE — not even the proven ones, which could never fire there.
+        for data in ["svg", "lock", "tsv", "dxcp"] {
+            let set = crate::lint_match::RuleSet::build(data, &tuples, &ground);
+            let ids: Vec<&str> = set.rule_ids().collect();
+            assert!(
+                ids.is_empty(),
+                "{data} has no grammar — a structural code principle cannot trace there, yet {ids:?} compiled"
+            );
+        }
+    }
 
     /// CONSERVATION for the canon (the PASS-31 invariant, applied to corpus principles): a canon
     /// principle whose plan the canon proof ACCEPTED — `understand_canon` returns `Some` only when

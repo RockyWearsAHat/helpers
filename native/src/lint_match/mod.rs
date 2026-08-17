@@ -606,7 +606,8 @@ impl RuleSet {
                 plan_rule_ids.insert(id.clone());
                 Some(plan)
             } else if is_corpus_principle {
-                crate::lint_trace::understand_canon(desc)
+                // Only where there is a tree to walk — see the named drop below.
+                has_grammar.then(|| crate::lint_trace::understand_canon(desc)).flatten()
             } else if !has_grammar {
                 // No bundled grammar ⇒ no AST to trace over. An understanding Plan (even
                 // `uses_construct`) is fired by `run_plan`, which needs a tree; without one every
@@ -631,7 +632,19 @@ impl RuleSet {
                 verified_understand(desc)
             };
             if is_corpus_principle && bound_trace.is_none() {
-                dropped(id, "corpus principle: understanding abstains (nothing structural to enforce)");
+                let reason = if has_grammar {
+                    "corpus principle: understanding abstains (nothing structural to enforce)"
+                } else {
+                    // A canon principle enforces ONLY through the trace bridge, and `run_plan` walks a
+                    // parsed tree — with no grammar for this language there is no tree, so the plan
+                    // would compile and then silently never fire. Dropping it NAMED is the honest
+                    // form of the same physics the doc-rule path already encodes above. This is what
+                    // keeps `svg`/`json`/`lock`/`tsv` from carrying code-design principles: not a
+                    // coded list of data extensions (which the no-coded-list law forbids), but the
+                    // machine's own answer to "can I parse this language at all".
+                    "corpus principle: no grammar for this language (a structural principle cannot trace without a tree)"
+                };
+                dropped(id, reason);
                 continue;
             }
             let kind = if let Some(plan) = bound_trace {
