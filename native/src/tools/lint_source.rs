@@ -309,6 +309,97 @@ fn publish_models(repo_root: &std::path::Path) -> Result<String, String> {
     ))
 }
 
+/// Build a self-contained PUBLISH BUNDLE in `out` — `index.json`, `index.sig`, every current
+/// module, and the machine-global brain artifacts — ready to upload anywhere that serves static
+/// files (owner directive 2026-08-17: host on my own site). The consumer side is host-agnostic by
+/// construction: `registry_fetch` reads `{base}/index.json` + `{base}/{file}` over plain HTTPS, and
+/// the base is the `registry` key in `sources.json` — DATA, so pointing at a new host is a one-line
+/// change and no rebuild.
+///
+/// This is the same content the git-branch publisher writes, with two differences that matter for a
+/// website: it emits a DIRECTORY rather than a git tree (no binaries in git history), and it carries
+/// the BRAIN. Signed by this machine's registry key over the exact `index.json` bytes, so consumers
+/// verify signature-then-sha256 exactly as they do for the branch.
+pub fn build_publish_bundle(out: &std::path::Path) -> Result<String, String> {
+    let dir = crate::lint_train::model_dir_pub();
+    std::fs::create_dir_all(out.join("brain")).map_err(|e| format!("publish-bundle: {e}"))?;
+    let mut index: Vec<Value> = Vec::new();
+    let mut wrote = 0usize;
+    let mut bytes_total = 0u64;
+
+    // Per-language modules, current TRAIN_VERSION only — the container stamp IS the provenance.
+    let mut langs: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&dir).map_err(|e| format!("publish-bundle: {e}"))?.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(lang) = name.strip_suffix(".module.bin") else { continue };
+        let Ok(raw) = std::fs::read(&path) else { continue };
+        let Some(header) = crate::lint_codec::probe(&raw) else { continue };
+        let mut fields = header.stamp.split('\u{1f}');
+        let (train_version, toolchain, sources_fp) = (
+            fields.next().unwrap_or("").to_string(),
+            fields.next().unwrap_or("").to_string(),
+            fields.next().unwrap_or("").to_string(),
+        );
+        if train_version != crate::lint_train::train_version() {
+            continue;
+        }
+        let v: String = toolchain
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '-' })
+            .collect();
+        let file = format!("{lang}@{}.module.bin", if v.is_empty() { "any".to_string() } else { v });
+        std::fs::write(out.join(&file), &raw).map_err(|e| format!("publish-bundle: {e}"))?;
+        bytes_total += raw.len() as u64;
+        wrote += 1;
+        langs.push(lang.to_string());
+        index.push(json!({
+            "language": lang,
+            "toolchain": toolchain,
+            "train_version": crate::lint_train::train_version(),
+            "sources": sources_fp,
+            "sha256": crate::lint_sign::sha256_hex(&raw),
+            "module": file,
+        }));
+    }
+
+    // The machine-global brain — the artifact no machine should ever have to build.
+    for name in ["char.global.bin", "char.global.fp", "english.global.bin"] {
+        let Ok(raw) = std::fs::read(dir.join(name)) else { continue };
+        let file = format!("brain/{name}");
+        std::fs::write(out.join(&file), &raw).map_err(|e| format!("publish-bundle: {e}"))?;
+        bytes_total += raw.len() as u64;
+        wrote += 1;
+        index.push(json!({
+            "kind": "artifact",
+            "artifact": name,
+            "rev": crate::lint_char::brain_rev(),
+            "sha256": crate::lint_sign::sha256_hex(&raw),
+            "file": file,
+        }));
+    }
+    if index.is_empty() {
+        return Err("publish-bundle: nothing current to publish — run `lint_config action=train` first".into());
+    }
+
+    let index_pretty = serde_json::to_string_pretty(&index).unwrap_or_default();
+    std::fs::write(out.join("index.json"), &index_pretty).map_err(|e| format!("publish-bundle: {e}"))?;
+    let signature = crate::lint_sign::sign(index_pretty.as_bytes())?;
+    std::fs::write(out.join("index.sig"), &signature).map_err(|e| format!("publish-bundle: {e}"))?;
+    langs.sort();
+    Ok(format!(
+        "Wrote {wrote} file(s), {:.1}MB, to {}\n  modules: {}\n  brain: rev {}\n\
+         Upload the DIRECTORY CONTENTS to the host serving your registry base, then set that base as \
+         the `registry` key of lint-index/sources.json. Index signed by key {}… — consumers verify \
+         the signature and each file's SHA-256 before loading anything.",
+        bytes_total as f64 / (1024.0 * 1024.0),
+        out.display(),
+        if langs.is_empty() { "(none current)".to_string() } else { langs.join(", ") },
+        crate::lint_char::brain_rev(),
+        &crate::lint_sign::machine_fingerprint()?[..16],
+    ))
+}
+
 /// MCP schema for the `lint_submit` tool.
 pub fn schema_submit() -> Value {
     json!({

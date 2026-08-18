@@ -58,6 +58,13 @@ const MEM_CAP: usize = 8 << 20;
 /// via a chrome-borrowed "password"); every stale brain rebuilds to the filtered usage sense.
 const BRAIN_REV: u64 = 14;
 
+/// The binding-scheme revision a published brain is keyed by — the registry serves one brain per
+/// rev, so a machine never loads a brain a different reader version produced
+/// (`native/plan-module-distribution.dx`).
+pub fn brain_rev() -> u64 {
+    BRAIN_REV
+}
+
 /// The neighborhood a character's code-vs-prose vote is taken over (characters). Wide enough to
 /// smooth a surprising letter inside a known word, narrow enough to catch a short example.
 const SEG_WINDOW: usize = 16;
@@ -1537,6 +1544,17 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     if brain_fp() == Some(fp) && store_path().exists() {
         return Some("character brain: current".to_string());
     }
+    // PULL BEFORE BUILD when this machine cannot produce a usable brain itself (owner directive
+    // 2026-08-17; see `native/plan-module-distribution.dx`). The brain is machine-independent derived
+    // data built from the macOS system dictionary, so Linux, Windows, and any Mac whose dictionary
+    // asset moved (PASS 46) would otherwise end up with an EMPTY meaning network and a silently dark
+    // understanding layer. A machine that CAN build one still does — its own dictionary is at least
+    // as good, and this must not quietly replace a locally-learned brain.
+    if !can_build_locally() {
+        if let Some(report) = pull_brain(data_root) {
+            return Some(report);
+        }
+    }
     let trace = std::env::var_os("HELPERS_LINT_TRACE").is_some();
     let mut clock = std::time::Instant::now();
     let lap = |clock: &mut std::time::Instant, name: &str| {
@@ -1670,6 +1688,65 @@ pub fn ensure_brain(data_root: &std::path::Path) -> Option<String> {
     ))
 }
 
+/// Whether this machine can build a USABLE brain from its own inputs — i.e. whether a dictionary is
+/// readable here. The web curriculum alone teaches the reader typography but binds no meanings, and a
+/// brain with an empty meaning network is the PASS-46 failure: every `has()` false, every canon
+/// principle abstaining, no error anywhere. So "can build" means "can bind meanings", nothing less.
+#[cfg(feature = "crawl")]
+fn can_build_locally() -> bool {
+    crate::lint_english::dictionary_present()
+}
+
+/// The machine-global artifacts a pulled brain consists of, in load order. `char.global.bin` is the
+/// substrate itself; `english.global.bin` is the common-language brain (which does have a committed
+/// bootstrap fallback, but the published one is richer); the fingerprint sidecar rides along so the
+/// pulled brain reports the snapshot it was built against.
+#[cfg(feature = "crawl")]
+const BRAIN_ARTIFACTS: &[&str] = &["char.global.bin", "char.global.fp", "english.global.bin"];
+
+/// Pull the published brain from the signed registry into this machine's model dir. Returns a
+/// one-line report, or `None` when there is no registry, no network, or no entry for this
+/// [`BRAIN_REV`] — every one of which leaves the caller's own build path untouched.
+///
+/// Idempotent and cheap on repeat: the artifacts are written only when their bytes differ from what
+/// is already on disk, so a machine that pulled last run re-verifies against the (24h-cached) signed
+/// index and writes nothing.
+#[cfg(feature = "crawl")]
+fn pull_brain(data_root: &std::path::Path) -> Option<String> {
+    let dir = crate::lint_train::model_dir_pub();
+    std::fs::create_dir_all(&dir).ok()?;
+    let mut pulled = 0usize;
+    let mut bytes_total = 0usize;
+    for name in BRAIN_ARTIFACTS {
+        let Some(bytes) = crate::lint_train::registry_fetch_artifact(data_root, name, BRAIN_REV)
+        else {
+            // The substrate is required; its companions are best-effort.
+            if *name == "char.global.bin" {
+                return None;
+            }
+            continue;
+        };
+        bytes_total += bytes.len();
+        let path = dir.join(name);
+        if std::fs::read(&path).ok().as_deref() != Some(bytes.as_slice()) {
+            std::fs::write(&path, &bytes).ok()?;
+            pulled += 1;
+        }
+    }
+    // Prove what arrived rather than trusting the transport: a brain whose meaning network is empty
+    // is exactly the failure this pull exists to prevent, so refuse it loudly instead of installing it.
+    let meanings = load_owned().map(|r| r.meanings().len()).unwrap_or(0);
+    if meanings == 0 {
+        let _ = std::fs::remove_file(dir.join("char.global.bin"));
+        return None;
+    }
+    Some(format!(
+        "character brain: pulled from registry — {meanings} meanings, {} artifact(s), {:.1}MB (rev {BRAIN_REV})",
+        pulled,
+        bytes_total as f64 / (1024.0 * 1024.0),
+    ))
+}
+
 #[cfg(not(feature = "crawl"))]
 pub fn ensure_brain(_data_root: &std::path::Path) -> Option<String> {
     None
@@ -1791,6 +1868,79 @@ mod tests {
         let (prose, code) = &units[0];
         assert!(code.contains("frobnicate"), "the novel code is the surprise run: {code:?}");
         assert!(prose.to_lowercase().contains("goto"), "the calm prose above governs it: {prose:?}");
+    }
+
+    /// END-TO-END registry pull: serve a real publish bundle over HTTP, point a BRAINLESS machine's
+    /// registry at it, and prove the brain arrives verified and usable. Exercises the whole consumer
+    /// path — signed index fetch, signature verification against the trusted key, per-artifact
+    /// SHA-256 pin, write into the model dir, and the "did a usable meaning network actually arrive"
+    /// proof that refuses an empty one.
+    ///
+    /// Ignored: needs a bundle on disk and a local HTTP server. Build one first with
+    /// `helpers-native publish-bundle <dir>`, then:
+    /// `HELPERS_TEST_BUNDLE=<dir> cargo test --release --lib pulls_the_published_brain -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a publish bundle and a local HTTP server"]
+    fn pulls_the_published_brain_from_a_signed_registry() {
+        let Some(bundle) = std::env::var_os("HELPERS_TEST_BUNDLE").map(std::path::PathBuf::from) else {
+            eprintln!("skip: set HELPERS_TEST_BUNDLE to a `publish-bundle` directory");
+            return;
+        };
+        let _env = crate::test_env_lock();
+        // Serve the bundle on a free port.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        drop(listener);
+        let mut server = std::process::Command::new("python3")
+            .args(["-m", "http.server", &port.to_string(), "--bind", "127.0.0.1"])
+            .current_dir(&bundle)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("python3 http.server");
+        // A throwaway machine: empty models dir, and a data root whose registry points at the server.
+        let tmp = std::env::temp_dir().join(format!("brain-pull-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let models = tmp.join("models");
+        std::fs::create_dir_all(&models).expect("models dir");
+        std::fs::create_dir_all(tmp.join("lint-index")).expect("index dir");
+        std::fs::write(
+            tmp.join("lint-index/sources.json"),
+            format!(r#"{{"version":3,"registry":"http://127.0.0.1:{port}","sources":[]}}"#),
+        )
+        .expect("sources.json");
+        // Trust exactly the key that signed the bundle — this machine's registry key.
+        let key = crate::lint_sign::machine_fingerprint().expect("signing identity");
+        std::fs::write(
+            tmp.join("lint-index/trusted-keys.json"),
+            format!(r#"{{"registry":["{key}"]}}"#),
+        )
+        .expect("trusted-keys.json");
+        std::env::set_var("HELPERS_LINT_MODELS", &models);
+        std::env::set_var("HELPERS_WORKSPACE_ROOTS", &tmp);
+        std::env::remove_var("HELPERS_LINT_OFFLINE");
+        // Give the server a moment to accept connections.
+        for _ in 0..50 {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        let report = super::pull_brain(&tmp);
+        let _ = server.kill();
+        std::env::remove_var("HELPERS_LINT_MODELS");
+        std::env::remove_var("HELPERS_WORKSPACE_ROOTS");
+        let report = report.expect("the published brain must pull from a signed registry");
+        eprintln!("{report}");
+        assert!(models.join("char.global.bin").exists(), "the substrate landed in the model dir");
+        let pulled = super::load_owned().expect("the pulled brain decodes");
+        assert!(
+            pulled.meanings().len() > 95_000,
+            "a pulled brain carries the whole dictionary meaning network, got {}",
+            pulled.meanings().len()
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// DEV TOOL — rebuild THIS MACHINE's two global brains (the common-language store and

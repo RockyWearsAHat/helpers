@@ -294,6 +294,14 @@ fn dictionary_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// Whether a readable dictionary exists on this machine at all — the precondition for BINDING
+/// meanings (as opposed to merely reading typography). Callers use it to decide whether a local
+/// brain build could produce a usable meaning network, or whether the published one must be pulled
+/// instead (`native/plan-module-distribution.dx`).
+pub fn dictionary_present() -> bool {
+    dictionary_body().is_some()
+}
+
 /// The best English dictionary body on this machine plus its change fingerprint: prefer the
 /// New Oxford American, else the largest non-localized `Body.data`. Localized variants
 /// (`*.lproj/Body.data`) are other languages — the substrate's baseline is English.
