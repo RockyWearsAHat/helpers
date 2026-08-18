@@ -1,0 +1,72 @@
+# The AI linter's modules and brain are meant to be PULLED, not retrained on every machine
+# (native/plan-module-distribution.dx). That only holds while the published registry actually
+# carries the CURRENT training version — and the last time it silently fell behind, it sat 71
+# versions stale (v45 vs v116) and every machine in the world crawled the docs itself.
+#
+# CI cannot republish: training crawls ~95 documentation sites for hours and needs a machine with a
+# system dictionary. What CI CAN do is refuse to let the drift go unnoticed, which is the half that
+# actually failed. This job compares the TRAIN_VERSION in the source against the one the published
+# registry serves, and fails with the exact command to fix it.
+name: lint registry drift
+
+on:
+  push:
+    branches: [main]
+    paths: ['native/src/lint_train.rs']
+  pull_request:
+    paths: ['native/src/lint_train.rs']
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare source TRAIN_VERSION against the published registry
+        run: |
+          set -euo pipefail
+
+          src_version=$(sed -n 's/.*const TRAIN_VERSION: &str = "\(.*\)";.*/\1/p' native/src/lint_train.rs | head -1)
+          if [ -z "$src_version" ]; then
+            echo "::error::could not read TRAIN_VERSION from native/src/lint_train.rs"
+            exit 1
+          fi
+          registry=$(python3 -c "import json;print(json.load(open('lint-index/sources.json')).get('registry',''))")
+          if [ -z "$registry" ]; then
+            echo "No registry configured — machines train locally by design. Nothing to check."
+            exit 0
+          fi
+
+          echo "source TRAIN_VERSION : $src_version"
+          echo "registry             : $registry"
+
+          if ! curl -fsSL --max-time 60 "$registry/index.json" -o /tmp/index.json; then
+            echo "::warning::registry index unreachable at $registry/index.json — cannot check drift"
+            exit 0
+          fi
+
+          python3 - "$src_version" <<'PY'
+          import json, sys, collections
+          want = sys.argv[1]
+          index = json.load(open('/tmp/index.json'))
+          modules = [e for e in index if e.get('kind') != 'artifact']
+          artifacts = [e for e in index if e.get('kind') == 'artifact']
+          have = collections.Counter(e.get('train_version', '?') for e in modules)
+          current = have.get(want, 0)
+          print(f"published modules  : {len(modules)} ({len(artifacts)} machine-global artifact(s))")
+          for v, n in have.most_common():
+              print(f"  {n:4d}  {v}{'   <-- current' if v == want else ''}")
+          if current:
+              print(f"\nOK — {current} module(s) published at {want}.")
+              raise SystemExit(0)
+          print(
+              f"\n::error::the registry serves NO module at the current training version ({want}).\n"
+              "Every machine will crawl the documentation itself instead of pulling.\n"
+              "Fix on a machine with a trained cache:\n"
+              "  helpers-native call lint_config  <<< '{\"action\":\"train\",\"all\":true}'\n"
+              "  helpers-native publish-bundle ./registry-bundle\n"
+              "then upload ./registry-bundle/* to the host serving the registry base."
+          )
+          raise SystemExit(1)
+          PY

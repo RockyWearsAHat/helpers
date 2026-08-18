@@ -108,6 +108,28 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        // Build the upload-ready registry bundle (index.json + index.sig + modules + brain).
+        // Hosting is the owner's choice and the consumer side is host-agnostic, so this stops at a
+        // DIRECTORY — upload it wherever the `registry` base points.
+        Some("publish-bundle") => {
+            let out = match argv.get(1) {
+                Some(d) => std::path::PathBuf::from(d),
+                None => {
+                    eprintln!("usage: helpers-native publish-bundle <output-dir>");
+                    return ExitCode::from(2);
+                }
+            };
+            match helpers_native::tools::lint_source::build_publish_bundle(&out) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("mcp") => mcp::run(),
         Some("call") => run_call(argv.get(1).map(String::as_str)),
         Some("bundle") => run_bundle(argv.get(1), argv.get(2)),
@@ -118,7 +140,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            eprintln!("usage: helpers-native <mcp | schemas | call <tool> | bundle | install | refs>");
+            eprintln!("usage: helpers-native <mcp | schemas | call <tool> | bundle | publish-bundle <dir> | install | refs>");
             ExitCode::from(2)
         }
     }
