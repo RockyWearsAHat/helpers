@@ -3001,6 +3001,101 @@ mod tests {
         }
     }
 
+    /// END-TO-END module pull: serve a real publish bundle over HTTP and prove a machine PULLS a
+    /// language module instead of crawling its documentation. This is the half of the distribution
+    /// contract that had gone unexercised in production for 71 training versions (the published
+    /// registry sat at `docs-v45` while `docs-v116` ran, so no fetch could ever match) — worth
+    /// proving before self-hosting is committed to, not assumed.
+    ///
+    /// Ignored: needs a bundle on disk and a local HTTP server. Build one with
+    /// `helpers-native publish-bundle <dir>`, then:
+    /// `HELPERS_TEST_BUNDLE=<dir> cargo test --release --lib pulls_a_published_module -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a publish bundle and a local HTTP server"]
+    fn pulls_a_published_module_from_a_signed_registry() {
+        let Some(bundle) = std::env::var_os("HELPERS_TEST_BUNDLE").map(PathBuf::from) else {
+            eprintln!("skip: set HELPERS_TEST_BUNDLE to a `publish-bundle` directory");
+            return;
+        };
+        // The bundle's own index says what it serves — the test asserts the CONTRACT, never a
+        // hardcoded language that a future corpus might not carry.
+        let index: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(bundle.join("index.json")).expect("index.json"))
+                .expect("index parses");
+        // The LARGEST current module, so the assertion below is about a module that actually
+        // carries rules — a transport that moves an empty module proves much less.
+        let Some(entry) = index
+            .iter()
+            .filter(|e| {
+                e["kind"].as_str() != Some("artifact")
+                    && e["train_version"].as_str() == Some(super::TRAIN_VERSION)
+            })
+            .max_by_key(|e| {
+                e["module"]
+                    .as_str()
+                    .and_then(|f| std::fs::metadata(bundle.join(f)).ok())
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+            })
+        else {
+            eprintln!("skip: the bundle carries no module at the current TRAIN_VERSION");
+            return;
+        };
+        let (lang, toolchain, sources_fp) = (
+            entry["language"].as_str().expect("language").to_string(),
+            entry["toolchain"].as_str().unwrap_or("").to_string(),
+            entry["sources"].as_str().expect("sources").to_string(),
+        );
+
+        let _env = crate::test_env_lock();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        drop(listener);
+        let mut server = std::process::Command::new("python3")
+            .args(["-m", "http.server", &port.to_string(), "--bind", "127.0.0.1"])
+            .current_dir(&bundle)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("python3 http.server");
+        let tmp = std::env::temp_dir().join(format!("module-pull-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("lint-index")).expect("index dir");
+        std::fs::write(
+            tmp.join("lint-index/sources.json"),
+            format!(r#"{{"version":3,"registry":"http://127.0.0.1:{port}","sources":[]}}"#),
+        )
+        .expect("sources.json");
+        let key = crate::lint_sign::machine_fingerprint().expect("signing identity");
+        std::fs::write(
+            tmp.join("lint-index/trusted-keys.json"),
+            format!(r#"{{"registry":["{key}"]}}"#),
+        )
+        .expect("trusted-keys.json");
+        std::env::remove_var("HELPERS_LINT_OFFLINE");
+        for _ in 0..50 {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        let pulled = super::registry_fetch_validation(&tmp, &lang, &toolchain, &sources_fp);
+        let _ = server.kill();
+        let module = pulled.unwrap_or_else(|| {
+            panic!("the published {lang} module must pull from a signed registry")
+        });
+        assert_eq!(module.train_version, super::TRAIN_VERSION, "a pulled module is the current one");
+        assert_eq!(module.sources_fp, sources_fp, "and the one asked for");
+        eprintln!("pulled {lang}: {} rule(s)", module.rules.rule_count());
+        assert!(
+            module.rules.rule_count() > 0,
+            "the largest published module must carry rules — a transport that only moves empty \
+             modules proves nothing about distribution"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// CONSERVATION for the canon (the PASS-31 invariant, applied to corpus principles): a canon
     /// principle whose plan the canon proof ACCEPTED — `understand_canon` returns `Some` only when
     /// `canon_plan_proven` holds, i.e. the plan fires on the machine's known-terrible reference and
