@@ -2478,6 +2478,46 @@ fn registry_fetch_inner(data_root: &Path, lang: &str, version: &str, sources_fp:
         .then_some(module)
 }
 
+/// Fetch a machine-global ARTIFACT the registry publishes alongside the per-language modules — the
+/// character brain and its companions. Same signed index, same sha256 pin, same refusal of
+/// unverified bytes; the entry is matched on `artifact` (the file's canonical name) and `rev` (the
+/// binding-scheme revision it was built under), so a machine never loads a brain a different reader
+/// version produced.
+///
+/// Why the brain belongs in the registry at all (owner directive 2026-08-17, measured in
+/// `native/plan-module-distribution.dx`): it is 62MB, takes ~6 minutes to build, is IDENTICAL on
+/// every machine, and is built from the macOS system dictionary — so Linux, Windows, and any Mac
+/// whose dictionary asset moved (PASS 46) have no meaning network at all and the whole understanding
+/// layer is silently dark. It is simultaneously the most expensive artifact to build, the least
+/// portable to build, and the most universally shared — exactly what a distribution channel is for.
+#[cfg(feature = "crawl")]
+pub(crate) fn registry_fetch_artifact(data_root: &Path, artifact: &str, rev: u64) -> Option<Vec<u8>> {
+    if std::env::var_os("HELPERS_LINT_OFFLINE").is_some() || crate::doc_crawler::network_down() {
+        return None;
+    }
+    let base = registry_url(data_root)?;
+    let index = registry_index(&base, data_root)?;
+    let entry = index.as_array()?.iter().find(|e| {
+        e["kind"].as_str() == Some("artifact")
+            && e["artifact"].as_str() == Some(artifact)
+            && e["rev"].as_u64() == Some(rev)
+    })?;
+    let file = entry["file"].as_str()?;
+    let expected = entry["sha256"].as_str()?;
+    let bytes = crate::doc_crawler::fetch_bytes(&format!("{base}/{file}"), MAX_REGISTRY_ARTIFACT_BYTES)?;
+    (crate::lint_sign::sha256_hex(&bytes) == expected).then_some(bytes)
+}
+
+#[cfg(not(feature = "crawl"))]
+pub(crate) fn registry_fetch_artifact(_data_root: &Path, _artifact: &str, _rev: u64) -> Option<Vec<u8>> {
+    None
+}
+
+/// Ceiling on a fetched machine-global artifact. The brain is ~62MB today; this bounds a
+/// mis-pointed URL without capping legitimate growth.
+#[cfg(feature = "crawl")]
+const MAX_REGISTRY_ARTIFACT_BYTES: u64 = 512 << 20;
+
 #[cfg(not(feature = "crawl"))]
 fn registry_fetch(_data_root: &Path, _lang: &str, _version: &str, _sources_fp: &str) -> Option<Module> {
     None
@@ -2534,7 +2574,13 @@ fn registry_index(base: &str, data_root: &Path) -> Option<serde_json::Value> {
     static INDEX: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
     INDEX
         .get_or_init(|| {
-            let cache = lint_index_cache_dir().join("registry-index.json");
+            // The cache is keyed by the REGISTRY BASE, not just by being "the index": a machine that
+            // repoints `registry` at a different host (owner directive 2026-08-17 — self-hosting the
+            // artifacts) would otherwise keep replaying the OLD registry's index for a full day, and
+            // silently fetch nothing from the new one. Measured while wiring the self-hosted bundle:
+            // a cached github index made every artifact lookup miss against a local registry.
+            let cache = lint_index_cache_dir()
+                .join(format!("registry-index-{:016x}.json", crate::lint_ai::token_seed(base)));
             let day = std::time::Duration::from_secs(24 * 60 * 60);
             let fresh = std::env::var_os("HELPERS_LINT_REFRESH").is_none()
                 && std::fs::metadata(&cache)
