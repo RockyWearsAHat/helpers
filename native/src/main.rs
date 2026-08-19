@@ -130,6 +130,20 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // ONE STEP: build → upload → verify the live registry.
+        Some("publish-registry") => {
+            let to = argv.iter().position(|a| a == "--to").and_then(|i| argv.get(i + 1)).cloned();
+            match helpers_native::tools::lint_source::publish_registry(to.as_deref()) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("mcp") => mcp::run(),
         Some("call") => run_call(argv.get(1).map(String::as_str)),
         Some("bundle") => run_bundle(argv.get(1), argv.get(2)),

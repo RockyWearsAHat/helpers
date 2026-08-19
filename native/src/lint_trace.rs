@@ -2077,6 +2077,32 @@ fn duplicate_subtree<'a>(root: Node<'a>, _src: &[u8]) -> Vec<(Node<'a>, Node<'a>
 mod tests {
     use super::*;
 
+    /// MEASUREMENT — of the subjects the read gate withholds as "attested but not demonstrated"
+    /// (the docs mark them deprecated, but no example on the page demonstrates them), how many would
+    /// PROVE themselves through the chain that already exists? `plan_self_verifies` synthesizes the
+    /// smallest snippet the construct's own shape implies and confirms the plan fires on it, which is
+    /// the same discipline every graduated construct rule passes. Feed it the ledger's own ids:
+    /// `HELPERS_TEST_LANG=python HELPERS_TEST_SUBJECTS=a,b,c cargo test --release --lib zz_measure_self_verify -- --ignored --nocapture`
+    #[test]
+    #[ignore = "measurement over a supplied subject list"]
+    fn zz_measure_self_verify() {
+        let lang = std::env::var("HELPERS_TEST_LANG").unwrap_or_else(|_| "python".into());
+        let subjects: Vec<String> = std::env::var("HELPERS_TEST_SUBJECTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let (mut proves, mut fails) = (Vec::new(), Vec::new());
+        for c in &subjects {
+            let plan = Plan::UsesConstruct { construct: c.clone() };
+            if super::plan_self_verifies(&lang, &plan) { proves.push(c.clone()) } else { fails.push(c.clone()) }
+        }
+        eprintln!("MEASURE {lang}: {} subject(s) — {} PROVE, {} do not", subjects.len(), proves.len(), fails.len());
+        eprintln!("  proving: {:?}", &proves.iter().take(15).collect::<Vec<_>>());
+        eprintln!("  failing: {:?}", &fails.iter().take(15).collect::<Vec<_>>());
+    }
+
     /// Build the understanding a real machine loads: the separating dictionary meaning network
     /// (whole dictionary) plus the English brain (bootstrap fallback is fine). Ignored — reads the
     /// local dictionary.
