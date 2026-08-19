@@ -2451,12 +2451,22 @@ fn registry_fetch_validation(
 fn registry_fetch_inner(data_root: &Path, lang: &str, version: &str, sources_fp: &str) -> Option<Module> {
     let base = registry_url(data_root)?;
     let index = registry_index(&base, data_root)?;
+    // THE MATCH KEY IS THE DOCUMENTATION, NOT THE LOCAL COMPILER (owner directive 2026-08-19).
+    // A module's rules are what the machine READ; `sources_fp` already identifies exactly which
+    // documentation that was — including the version, whenever a language's docs are version-scoped
+    // by URL (`docs.python.org/3.12/…`), because the URL set is what it hashes. The publisher's own
+    // toolchain version is a SECOND key that gets it wrong in both directions, measured on the first
+    // real registry: 66 of 80 modules were keyed `""` (labelled `@any`) purely because the training
+    // machine had no such toolchain installed — an absence of information wearing a universality
+    // claim — while the 14 that did detect one were pinned to that machine's exact version, so a
+    // consumer one patch release ahead matched nothing and crawled the docs itself. Toolchain is
+    // kept in the index as PROVENANCE (what the publisher had) and is deliberately not matched on.
     let entry = index.as_array()?.iter().find(|e| {
         e["language"].as_str() == Some(lang)
             && e["train_version"].as_str() == Some(TRAIN_VERSION)
-            && e["toolchain"].as_str() == Some(version)
             && e["sources"].as_str() == Some(sources_fp)
     })?;
+    let _ = version;
     let file = entry["module"].as_str().or_else(|| entry["file"].as_str())?;
     let expected_hash = entry["sha256"].as_str()?;
     let bytes = crate::doc_crawler::fetch_bytes(&format!("{base}/{file}"), MAX_REGISTRY_MODULE_BYTES)?;
@@ -2472,10 +2482,9 @@ fn registry_fetch_inner(data_root: &Path, lang: &str, version: &str, sources_fp:
     } else {
         serde_json::from_str(std::str::from_utf8(&bytes).ok()?).ok()?
     };
-    (module.train_version == TRAIN_VERSION
-        && module.version == version
-        && module.sources_fp == sources_fp)
-        .then_some(module)
+    // Same contract on the decoded bytes: the reading logic and the documentation identity must be
+    // the ones asked for. The publisher's toolchain string is provenance, never a gate.
+    (module.train_version == TRAIN_VERSION && module.sources_fp == sources_fp).then_some(module)
 }
 
 /// Fetch a machine-global ARTIFACT the registry publishes alongside the per-language modules — the

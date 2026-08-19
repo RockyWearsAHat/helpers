@@ -351,6 +351,101 @@ pub fn replacement_tokens() -> Vec<String> {
     status_values("replacement")
 }
 
+/// WHICH VERSION a status notice names — the datum the docs state and this faculty used to read
+/// past. `attests` answers "is this deprecated"; this answers "since when", which is what makes one
+/// module able to serve every version of a language
+/// (`native/plan-version-scoped-modules.dx`).
+///
+/// The status word comes from the same shipped vocabulary every other attestation uses
+/// (`deprecation-status.json`); the VERSION is recognised by typography alone — a dotted or bare
+/// numeric token — so no list of version formats is coded anywhere. The version must FOLLOW its
+/// status word within a few tokens, which is what keeps "a new version 3 of the protocol" from
+/// reading as an introduction: prose that merely contains both is not a notice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VersionNote {
+    /// The construct exists from this version on ("New in version 3.12").
+    Introduced(String),
+    /// The construct is discouraged from this version on ("Deprecated since version 3.11").
+    DeprecatedSince(String),
+    /// The construct is gone from this version on ("Removed in version 3.13").
+    RemovedIn(String),
+}
+
+impl VersionNote {
+    /// The version string itself.
+    pub fn version(&self) -> &str {
+        match self {
+            VersionNote::Introduced(v) | VersionNote::DeprecatedSince(v) | VersionNote::RemovedIn(v) => v,
+        }
+    }
+}
+
+/// How far after its status word a version may stand and still belong to it. "Deprecated since
+/// version 3.11" puts two words between them; more than that and the two are simply in the same
+/// sentence, which is not a notice.
+const VERSION_LOOKAHEAD: usize = 3;
+
+/// Whether `token` reads as a VERSION: digits, optionally dotted (`3`, `3.11`, `1.95.0`). Typography,
+/// never a table of known releases — a language this machine has never seen versions itself the same
+/// way.
+fn is_version_token(token: &str) -> bool {
+    let t = token.trim_end_matches(|c: char| c == '.' || c == ',' || c == ':' || c == ')');
+    !t.is_empty()
+        && t.starts_with(|c: char| c.is_ascii_digit())
+        && t.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && t.chars().any(|c| c.is_ascii_digit())
+}
+
+/// Read the VERSION NOTE out of one text run, or `None` when it states no version.
+pub fn version_note(run: &str) -> Option<VersionNote> {
+    let deprecates = status_values("prohibits");
+    let removes = status_values("removed");
+    let introduces = status_values("introduced");
+    let version_words = status_values("version_word");
+    let words: Vec<String> = run
+        .split(|c: char| c.is_whitespace())
+        .map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.').to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    for (i, word) in words.iter().enumerate() {
+        let kind = if removes.iter().any(|v| v == word) {
+            VersionNote::RemovedIn as fn(String) -> VersionNote
+        } else if deprecates.iter().any(|v| v == word) {
+            VersionNote::DeprecatedSince as fn(String) -> VersionNote
+        } else if introduces.iter().any(|v| v == word) {
+            VersionNote::Introduced as fn(String) -> VersionNote
+        } else {
+            continue;
+        };
+        // The nearest version token after the status word, within the lookahead. A BARE number
+        // qualifies only when the version word stands between the anchor and it — "New in version
+        // 3.12" is a notice, "added 3 items" is prose. A DOTTED number needs no such help.
+        // (Measured before this cut: the C++ Core Guidelines minted Introduced("3"), ("0"), ("7").)
+        let mut saw_version_word = false;
+        for w in words.iter().skip(i + 1).take(VERSION_LOOKAHEAD) {
+            if version_words.iter().any(|v| v == w) {
+                saw_version_word = true;
+                continue;
+            }
+            if !is_version_token(w) {
+                continue;
+            }
+            let v = w.trim_end_matches('.');
+            if v.contains('.') || saw_version_word {
+                return Some(kind(v.to_string()));
+            }
+            break;
+        }
+    }
+    None
+}
+
+/// Every version note a page body states, in reading order — the page's own version history for the
+/// constructs it documents.
+pub fn version_notes(body: &str) -> Vec<VersionNote> {
+    runs_of(body).into_iter().filter_map(|r| version_note(&r)).collect()
+}
+
 /// Read a status-token array from `deprecation-status.json` by key (lower-cased). One reader for all the
 /// register data (`prohibits`, `removed`, `scope_exception`, `usage_form`, `replacement`) — the only hand
 /// data the faculty carries.
@@ -545,6 +640,94 @@ pub(crate) fn runs_of(body: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The version history is ALREADY in the pages this machine crawled — this reads it back out of
+    /// the real corpus rather than a fixture, which is the difference between "the parser works" and
+    /// "the data is there". Ignored: needs this machine's crawl cache.
+    /// `cargo test --release --lib version_notes_across_the_real_corpus -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads this machine's crawled documentation cache"]
+    fn version_notes_across_the_real_corpus() {
+        let mut found: Vec<(String, super::VersionNote)> = Vec::new();
+        let mut pages = 0usize;
+        for (url, body) in crate::lint_docs::all_cached_pages() {
+            pages += 1;
+            for note in super::version_notes(&body) {
+                found.push((url.clone(), note));
+            }
+        }
+        let mut introduced = 0;
+        let mut deprecated = 0;
+        let mut removed = 0;
+        for (_, n) in &found {
+            match n {
+                super::VersionNote::Introduced(_) => introduced += 1,
+                super::VersionNote::DeprecatedSince(_) => deprecated += 1,
+                super::VersionNote::RemovedIn(_) => removed += 1,
+            }
+        }
+        eprintln!(
+            "read {pages} cached page(s): {} version note(s) — {introduced} introduced, \
+             {deprecated} deprecated-since, {removed} removed-in",
+            found.len()
+        );
+        for (url, note) in found.iter().take(12) {
+            eprintln!("  {note:?}  ⟨{url}⟩");
+        }
+        assert!(
+            !found.is_empty(),
+            "the crawled documentation states version history; if none is read back, the notice \
+             reader is not seeing what the pages say"
+        );
+    }
+
+    /// THE VERSION IS THE DATUM WE USED TO THROW AWAY. Real phrasings, taken from the documentation
+    /// this machine already crawls: the notice states when, and reading it is what lets ONE module
+    /// serve every version of a language instead of pinning to whatever the publisher had installed.
+    #[test]
+    fn a_status_notice_yields_the_version_it_names() {
+        use super::{version_note, VersionNote};
+        // Python's own wording, on the pages in this machine's crawl cache.
+        assert_eq!(
+            version_note("Deprecated since version 3.11"),
+            Some(VersionNote::DeprecatedSince("3.11".into()))
+        );
+        assert_eq!(
+            version_note("Removed in version 3.13"),
+            Some(VersionNote::RemovedIn("3.13".into()))
+        );
+        assert_eq!(
+            version_note("New in version 3.12"),
+            Some(VersionNote::Introduced("3.12".into()))
+        );
+        // A trailing sentence period must not become part of the version.
+        assert_eq!(
+            version_note("Deprecated since version 3.9."),
+            Some(VersionNote::DeprecatedSince("3.9".into()))
+        );
+        // Three-part and bare versions are versions too — typography, not a table of releases.
+        assert_eq!(
+            version_note("Added in 1.95.0 of the compiler"),
+            Some(VersionNote::Introduced("1.95.0".into()))
+        );
+
+        // ── what must NOT read as a version notice ──────────────────────────────────────────
+        // The status alone: this is exactly the case that made 66 of 80 modules claim `@any`
+        // without evidence. No version stated ⇒ no version claimed.
+        assert_eq!(version_note("This feature is deprecated."), None);
+        assert_eq!(version_note("Deprecated"), None);
+        // A version far from its status word is prose that mentions both, not a notice.
+        assert_eq!(
+            version_note("deprecated behaviour is discussed at length in the release notes for 3.11"),
+            None
+        );
+        // No status word at all.
+        assert_eq!(version_note("Compatible with version 3.11"), None);
+        // A BARE number after an anchor is prose, not a notice — measured: the C++ Core Guidelines
+        // minted Introduced("3") from exactly this shape. It counts only with the version word.
+        assert_eq!(version_note("added 3 items to the list"), None);
+        assert_eq!(version_note("New in version 3"), Some(VersionNote::Introduced("3".into())));
+    }
 
     #[test]
     fn attester_matches_a_learned_run_as_a_whole_run() {
