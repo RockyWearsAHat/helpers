@@ -382,6 +382,13 @@ pub fn build_publish_bundle(out: &std::path::Path) -> Result<String, String> {
         return Err("publish-bundle: nothing current to publish — run `lint_config action=train` first".into());
     }
 
+    // A LANDING PAGE, generated from the index this run just built. Without one the registry root
+    // answers 404 — correct for a machine, baffling for a human who types the domain in (measured:
+    // that is exactly what happened). Generated rather than hand-written because it states the
+    // training version and the counts: a hand-maintained page is wrong the first time anyone
+    // republishes, and a registry that misreports which version it serves is worse than a silent one.
+    std::fs::write(out.join("index.html"), landing_page(&index)).map_err(|e| format!("publish-bundle: {e}"))?;
+
     let index_pretty = serde_json::to_string_pretty(&index).unwrap_or_default();
     std::fs::write(out.join("index.json"), &index_pretty).map_err(|e| format!("publish-bundle: {e}"))?;
     let signature = crate::lint_sign::sign(index_pretty.as_bytes())?;
@@ -398,6 +405,98 @@ pub fn build_publish_bundle(out: &std::path::Path) -> Result<String, String> {
         crate::lint_char::brain_rev(),
         &crate::lint_sign::machine_fingerprint()?[..16],
     ))
+}
+
+/// The registry's human page, rendered from the index itself so it can never disagree with what is
+/// actually served. Self-contained (no external stylesheet, font, or script): the registry is a
+/// static file host, and a page that needs the network to render is a page that breaks offline.
+fn landing_page(index: &[Value]) -> String {
+    let modules: Vec<&Value> = index.iter().filter(|e| e["kind"].as_str() != Some("artifact")).collect();
+    let artifacts: Vec<&Value> = index.iter().filter(|e| e["kind"].as_str() == Some("artifact")).collect();
+    let train_version =
+        modules.first().and_then(|e| e["train_version"].as_str()).unwrap_or("\u{2014}").to_string();
+    let mut rows: Vec<(String, String, String)> = modules
+        .iter()
+        .map(|e| {
+            (
+                e["language"].as_str().unwrap_or("?").to_string(),
+                e["toolchain"].as_str().filter(|t| !t.is_empty()).unwrap_or("any").to_string(),
+                e["module"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    rows.sort();
+    let module_rows: String = rows
+        .iter()
+        .map(|(lang, tc, file)| {
+            format!(
+                "<tr><td>{lang}</td><td class=\"mono dim\">{tc}</td><td class=\"mono\"><a href=\"/{file}\">{file}</a></td></tr>"
+            )
+        })
+        .collect();
+    let artifact_rows: String = artifacts
+        .iter()
+        .map(|e| {
+            let name = e["artifact"].as_str().unwrap_or("?");
+            let rev = e["rev"].as_u64().unwrap_or(0);
+            let file = e["file"].as_str().unwrap_or("");
+            format!(
+                "<tr><td>{name}</td><td class=\"mono dim\">rev {rev}</td><td class=\"mono\"><a href=\"/{file}\">{file}</a></td></tr>"
+            )
+        })
+        .collect();
+    let css = concat!(
+        ":root{color-scheme:light dark;--fg:#111;--dim:#666;--line:#e3e3e3;--bg:#fff;--acc:#0a5}",
+        "@media(prefers-color-scheme:dark){:root{--fg:#e8e8e8;--dim:#999;--line:#2a2a2a;--bg:#111}}",
+        "body{font:16px/1.65 ui-sans-serif,system-ui,sans-serif;color:var(--fg);background:var(--bg);",
+        "margin:0 auto;max-width:52rem;padding:3.5rem 1.5rem 5rem}",
+        "h1{font-size:1.5rem;margin:0 0 .25rem;letter-spacing:-.01em}",
+        "h2{font-size:1rem;margin:2.5rem 0 .75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}",
+        "p{margin:.75rem 0}.dim{color:var(--dim)}.lede{color:var(--dim);margin:0 0 2rem}",
+        ".mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}",
+        "table{border-collapse:collapse;width:100%;font-size:.9rem}",
+        "td,th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid var(--line)}",
+        "th{color:var(--dim);font-weight:500}a{color:var(--acc)}",
+        "code{background:color-mix(in srgb,var(--fg) 7%,transparent);padding:.12em .4em;border-radius:3px}",
+        ".stats{display:flex;gap:2.5rem;flex-wrap:wrap;margin:1.5rem 0}",
+        ".stat b{display:block;font-size:1.6rem;font-weight:600;line-height:1.2}",
+        ".stat span{color:var(--dim);font-size:.85rem}.wrap{overflow-x:auto}"
+    );
+    format!(
+        concat!(
+            "<!doctype html>\n<meta charset=\"utf-8\">\n",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n",
+            "<title>lint model registry</title>\n<style>{css}</style>\n",
+            "<h1>lint model registry</h1>\n",
+            "<p class=\"lede\">Trained language models for the AI linter, so a machine pulls what it ",
+            "needs instead of re-reading the documentation itself.</p>\n",
+            "<div class=\"stats\">",
+            "<div class=\"stat\"><b>{n_mod}</b><span>language modules</span></div>",
+            "<div class=\"stat\"><b>{n_art}</b><span>machine-global artifacts</span></div>",
+            "</div>\n",
+            "<p>Training version <code class=\"mono\">{train_version}</code>.</p>\n",
+            "<h2>How it is used</h2>\n",
+            "<p>A machine reads <a href=\"/index.json\" class=\"mono\">index.json</a>, checks its Ed25519 ",
+            "signature in <a href=\"/index.sig\" class=\"mono\">index.sig</a> against a trusted key, then ",
+            "fetches only the entries it needs and verifies each file's SHA-256 before loading it. ",
+            "Anything failing verification is refused and the machine reads the documentation itself ",
+            "instead \u{2014} so a bad or unreachable registry can slow a machine down, but never teach it ",
+            "something false.</p>\n",
+            "<h2>Machine-global artifacts</h2>\n<div class=\"wrap\"><table>",
+            "<tr><th>artifact</th><th>revision</th><th>file</th></tr>{artifact_rows}</table></div>\n",
+            "<p class=\"dim\">The character brain is the substrate every language module is read through. ",
+            "It is built from a system dictionary, which is why it is served here: a machine without one ",
+            "has no meaning network at all, and no way to build it.</p>\n",
+            "<h2>Language modules</h2>\n<div class=\"wrap\"><table>",
+            "<tr><th>language</th><th>toolchain</th><th>file</th></tr>{module_rows}</table></div>\n"
+        ),
+        css = css,
+        n_mod = modules.len(),
+        n_art = artifacts.len(),
+        train_version = train_version,
+        artifact_rows = artifact_rows,
+        module_rows = module_rows,
+    )
 }
 
 /// MCP schema for the `lint_submit` tool.
