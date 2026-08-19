@@ -1870,6 +1870,39 @@ mod tests {
         assert!(prose.to_lowercase().contains("goto"), "the calm prose above governs it: {prose:?}");
     }
 
+    /// The LIVE-REGISTRY check: pull the brain from whatever registry a real data root configures —
+    /// the deployment check, as opposed to the local-server test below which proves the mechanism.
+    /// Point it at a directory holding `lint-index/sources.json` + `trusted-keys.json`:
+    /// `HELPERS_TEST_REGISTRY_ROOT=/path/to/root cargo test --release --lib pulls_the_brain_from_the_configured -- --ignored --nocapture`
+    /// Run this after every republish — a signed index that 404s, or bytes a CDN rewrote, fails
+    /// CLOSED (machines fall back to reading the docs), which is safe but silent.
+    #[test]
+    #[ignore = "needs a data root pointing at a reachable registry"]
+    fn pulls_the_brain_from_the_configured_registry() {
+        let Some(root) = std::env::var_os("HELPERS_TEST_REGISTRY_ROOT").map(std::path::PathBuf::from)
+        else {
+            eprintln!("skip: set HELPERS_TEST_REGISTRY_ROOT to a data root");
+            return;
+        };
+        let _env = crate::test_env_lock();
+        let models = std::env::temp_dir().join(format!("live-brain-pull-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&models);
+        std::fs::create_dir_all(&models).expect("models dir");
+        std::env::set_var("HELPERS_LINT_MODELS", &models);
+        std::env::remove_var("HELPERS_LINT_OFFLINE");
+        let report = super::pull_brain(&root);
+        std::env::remove_var("HELPERS_LINT_MODELS");
+        let report = report.expect("the configured registry must serve a pullable brain");
+        eprintln!("{report}");
+        let pulled = super::load_owned().expect("the pulled brain decodes");
+        assert!(
+            pulled.meanings().len() > 95_000,
+            "a pulled brain carries the whole dictionary meaning network, got {}",
+            pulled.meanings().len()
+        );
+        let _ = std::fs::remove_dir_all(&models);
+    }
+
     /// END-TO-END registry pull: serve a real publish bundle over HTTP, point a BRAINLESS machine's
     /// registry at it, and prove the brain arrives verified and usable. Exercises the whole consumer
     /// path — signed index fetch, signature verification against the trusted key, per-artifact

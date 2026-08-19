@@ -2513,6 +2513,13 @@ pub(crate) fn registry_fetch_artifact(_data_root: &Path, _artifact: &str, _rev: 
     None
 }
 
+/// Ceilings on the registry's own control files — small by nature, capped so a mis-pointed URL
+/// cannot balloon memory before the signature is ever checked.
+#[cfg(feature = "crawl")]
+const MAX_REGISTRY_INDEX_BYTES: u64 = 16 << 20;
+#[cfg(feature = "crawl")]
+const MAX_REGISTRY_SIGNATURE_BYTES: u64 = 8 << 10;
+
 /// Ceiling on a fetched machine-global artifact. The brain is ~62MB today; this bounds a
 /// mis-pointed URL without capping legitimate growth.
 #[cfg(feature = "crawl")]
@@ -2603,9 +2610,24 @@ fn registry_index(base: &str, data_root: &Path) -> Option<serde_json::Value> {
                     }
                 }
             }
-            let (_, body) = crate::doc_crawler::fetch(&format!("{base}/index.json"))?;
-            let (_, sig) = crate::doc_crawler::fetch(&format!("{base}/index.sig"))?;
-            let sig = sig.trim().to_string();
+            // The index and its signature are fetched as BYTES, never through the textual
+            // `fetch`. That path vetoes anything a host labels binary, and a registry's own
+            // control files must not depend on the host's content-type guess: GitHub serves
+            // `index.sig` as `text/plain` while a plain static host serves it as
+            // `application/octet-stream`, which the binary gate refuses — so moving the registry
+            // to a different host made the index unverifiable and silently disabled EVERY pull
+            // (measured 2026-08-19, the day the registry moved off GitHub). Both files are small
+            // and size-capped; UTF-8 is required, so a non-text body still fails closed.
+            let body = String::from_utf8(
+                crate::doc_crawler::fetch_bytes(&format!("{base}/index.json"), MAX_REGISTRY_INDEX_BYTES)?,
+            )
+            .ok()?;
+            let sig = String::from_utf8(
+                crate::doc_crawler::fetch_bytes(&format!("{base}/index.sig"), MAX_REGISTRY_SIGNATURE_BYTES)?,
+            )
+            .ok()?
+            .trim()
+            .to_string();
             let v = verify_index(&body, &sig, data_root)?;
             let _ = std::fs::create_dir_all(lint_index_cache_dir());
             let _ = std::fs::write(
@@ -2999,6 +3021,58 @@ mod tests {
                 "{data} has no grammar — a structural code principle cannot trace there, yet {ids:?} compiled"
             );
         }
+    }
+
+    /// The LIVE-REGISTRY check for modules: pull whatever the configured registry serves for a
+    /// language this machine knows, through the real fetch path. Companion to the brain check in
+    /// `lint_char`; run both after every republish.
+    /// `HELPERS_TEST_REGISTRY_ROOT=/path/to/root cargo test --release --lib pulls_a_module_from_the_configured -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a data root pointing at a reachable registry"]
+    fn pulls_a_module_from_the_configured_registry() {
+        let Some(root) = std::env::var_os("HELPERS_TEST_REGISTRY_ROOT").map(PathBuf::from) else {
+            eprintln!("skip: set HELPERS_TEST_REGISTRY_ROOT to a data root");
+            return;
+        };
+        let _env = crate::test_env_lock();
+        std::env::remove_var("HELPERS_LINT_OFFLINE");
+        // Ask the registry's own index what it serves, then pull that through the real path — so the
+        // check follows a republished registry instead of pinning a language or a toolchain.
+        let base = super::registry_url(&root).expect("the data root configures a registry");
+        let index = super::registry_index(&base, &root).expect("the index fetches AND verifies");
+        let candidates: Vec<serde_json::Value> = index
+            .as_array()
+            .expect("index is an array")
+            .iter()
+            .filter(|e| {
+                e["kind"].as_str() != Some("artifact")
+                    && e["train_version"].as_str() == Some(super::TRAIN_VERSION)
+            })
+            .cloned()
+            .collect();
+        assert!(!candidates.is_empty(), "the registry serves no module at {}", super::TRAIN_VERSION);
+        // Pull EVERY entry rather than sampling one: this is the deployment check, so "the host
+        // serves all of it" is the claim worth making — a single lucky file proves little about a
+        // static host that could 404, truncate, or mis-type any of the others.
+        let mut with_rules = 0usize;
+        for entry in &candidates {
+            let (lang, toolchain, sources_fp) = (
+                entry["language"].as_str().expect("language").to_string(),
+                entry["toolchain"].as_str().unwrap_or("").to_string(),
+                entry["sources"].as_str().expect("sources").to_string(),
+            );
+            let module = super::registry_fetch_validation(&root, &lang, &toolchain, &sources_fp)
+                .unwrap_or_else(|| panic!("{base} must serve a pullable {lang} module"));
+            assert_eq!(module.train_version, super::TRAIN_VERSION, "{lang} is the current version");
+            if module.rules.rule_count() > 0 {
+                with_rules += 1;
+            }
+        }
+        eprintln!(
+            "pulled ALL {} module(s) from {base}; {with_rules} carry rules",
+            candidates.len()
+        );
+        assert!(with_rules > 0, "a registry whose every module is empty distributes nothing");
     }
 
     /// END-TO-END module pull: serve a real publish bundle over HTTP and prove a machine PULLS a
