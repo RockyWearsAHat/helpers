@@ -407,6 +407,66 @@ pub fn build_publish_bundle(out: &std::path::Path) -> Result<String, String> {
     ))
 }
 
+/// ONE STEP: build the bundle, upload it, and VERIFY the live registry actually serves what was
+/// just published. Publishing that stops at "the files were copied" is how a registry silently rots
+/// — every failure in this system's distribution has been a fail-closed one that looked like
+/// success, so the verify is part of the command, not a thing to remember afterwards.
+///
+/// The upload target is DATA, never baked in: `--to`, else `HELPERS_REGISTRY_UPLOAD`, in any form
+/// `scp -r` accepts (`user@host:/path`). No target ⇒ the bundle is built and its path reported, so
+/// a host that takes something other than ssh still gets a directory to ship.
+pub fn publish_registry(target: Option<&str>) -> Result<String, String> {
+    let staging = std::env::temp_dir().join(format!("lint-registry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    let built = build_publish_bundle(&staging)?;
+    let mut report = format!("1/3 built\n{built}\n");
+
+    let target = target
+        .map(str::to_string)
+        .or_else(|| std::env::var("HELPERS_REGISTRY_UPLOAD").ok())
+        .filter(|t| !t.trim().is_empty());
+    let Some(target) = target else {
+        report.push_str(&format!(
+            "\n2/3 upload SKIPPED — no target. Pass --to <user@host:/path> or set \
+             HELPERS_REGISTRY_UPLOAD.\n    The bundle is complete at {}\n",
+            staging.display()
+        ));
+        return Ok(report);
+    };
+
+    // Upload the CONTENTS, so the target directory is the registry root itself.
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&staging)
+        .map_err(|e| format!("publish-registry: {e}"))?
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    entries.sort();
+    let mut cmd = std::process::Command::new("scp");
+    cmd.arg("-q").arg("-r");
+    for e in &entries {
+        cmd.arg(e);
+    }
+    cmd.arg(&target);
+    let out = cmd.output().map_err(|e| format!("publish-registry: scp: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "publish-registry: upload to {target} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    report.push_str(&format!("\n2/3 uploaded {} entr(ies) to {target}\n", entries.len()));
+
+    // 3) VERIFY THE LIVE REGISTRY — the signed index must fetch and verify, and every module it
+    // names must actually be served and match its pinned hash. This is the check that would have
+    // caught the content-type defect that silently disabled every pull when the registry first
+    // moved hosts.
+    let data = crate::tools::lint::data_root_pub();
+    let verified = crate::lint_train::verify_published_registry(&data)?;
+    report.push_str(&format!("\n3/3 verified live: {verified}\n"));
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(report)
+}
+
 /// The registry's human page, rendered from the index itself so it can never disagree with what is
 /// actually served. Self-contained (no external stylesheet, font, or script): the registry is a
 /// static file host, and a page that needs the network to render is a page that breaks offline.

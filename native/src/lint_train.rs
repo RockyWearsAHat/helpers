@@ -2487,6 +2487,52 @@ fn registry_fetch_inner(data_root: &Path, lang: &str, version: &str, sources_fp:
     (module.train_version == TRAIN_VERSION && module.sources_fp == sources_fp).then_some(module)
 }
 
+/// VERIFY WHAT IS ACTUALLY SERVED — the third step of a publish, and the one that turns "the files
+/// were copied" into "the registry works". Fetches the signed index from the configured registry,
+/// verifies its signature against the trusted keys, then pulls EVERY module it names and checks each
+/// against its pinned SHA-256. Machine-global artifacts (the brain, tens of megabytes) are confirmed
+/// present in the index rather than re-downloaded.
+///
+/// This exists because every distribution failure this system has had was FAIL-CLOSED: a registry
+/// that 404s, or whose control files a host labels differently, disables every pull while looking
+/// exactly like success from the publishing side.
+#[cfg(feature = "crawl")]
+pub fn verify_published_registry(data_root: &Path) -> Result<String, String> {
+    let base = registry_url(data_root).ok_or("no `registry` configured in lint-index/sources.json")?;
+    // A publish must read what the host serves NOW, never a cached index from minutes ago.
+    let _ = std::fs::remove_file(
+        lint_index_cache_dir().join(format!("registry-index-{:016x}.json", crate::lint_ai::token_seed(&base))),
+    );
+    let index = registry_index(&base, data_root)
+        .ok_or_else(|| format!("{base}/index.json did not fetch AND verify against the trusted keys"))?;
+    let entries = index.as_array().ok_or("the index is not an array")?;
+    let (mut modules, mut artifacts, mut bytes) = (0usize, 0usize, 0u64);
+    for e in entries {
+        if e["kind"].as_str() == Some("artifact") {
+            artifacts += 1;
+            continue;
+        }
+        let file = e["module"].as_str().or_else(|| e["file"].as_str()).ok_or("entry has no file")?;
+        let want = e["sha256"].as_str().ok_or("entry has no sha256")?;
+        let got = crate::doc_crawler::fetch_bytes(&format!("{base}/{file}"), MAX_REGISTRY_MODULE_BYTES)
+            .ok_or_else(|| format!("{base}/{file} is named by the index but is not served"))?;
+        if crate::lint_sign::sha256_hex(&got) != want {
+            return Err(format!("{base}/{file} does not match the hash the signed index pins"));
+        }
+        bytes += got.len() as u64;
+        modules += 1;
+    }
+    Ok(format!(
+        "{modules} module(s) fetched and hash-verified ({:.1}MB), {artifacts} artifact(s) indexed, signature valid — {base}",
+        bytes as f64 / (1024.0 * 1024.0)
+    ))
+}
+
+#[cfg(not(feature = "crawl"))]
+pub fn verify_published_registry(_data_root: &Path) -> Result<String, String> {
+    Err("verify_published_registry needs the `crawl` feature".into())
+}
+
 /// Fetch a machine-global ARTIFACT the registry publishes alongside the per-language modules — the
 /// character brain and its companions. Same signed index, same sha256 pin, same refusal of
 /// unverified bytes; the entry is matched on `artifact` (the file's canonical name) and `rev` (the
