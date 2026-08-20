@@ -33,10 +33,12 @@ agent-agnostic; this skill is the Claude-side guide.
    first.
 4. **Loop: inspect → edit → validate → report.** No success claim without validation. Run
    `lint` (or the project's linter/build/tests) on changed files after edits.
-5. **Checkpoint at verified milestones** with `checkpoint`: write your own `message` and
-   stage a precise subset (`paths` / `lines`) — never `git add -A` of unrelated edits. Never
-   stage generated or massive build artifacts; if tracked, remove from the index and
-   gitignore them.
+5. **Checkpoint automatically at every verified milestone — do not wait to be told.** The
+   moment step 4's validation passes on a coherent unit of work, call `checkpoint`: write
+   your own `message` and stage a precise subset (`paths` / `lines`) — never `git add -A` of
+   unrelated edits. Never stage generated or massive build artifacts; if tracked, remove from
+   the index and gitignore them. This is default incremental-work behavior, not something
+   reserved for when the user explicitly asks for a commit.
 6. **Keep the workspace clean.** Generated files must never contaminate the repo.
 7. **Documentation stays true, in one place.** Every change that makes any documentation
    stale — module docs, READMEs, handoff notes, instruction files, contract comments —
@@ -130,4 +132,5 @@ All tools are deterministic native Rust (no AI), except web search/scrape (Node)
 1. `project_map` / `lookup` (refresh with `index_project`) to orient cheaply instead of grepping.
 2. Consult knowledge before web search.
 3. One specialized tool for the goal; `scrape_webpage` only for top hits needing depth.
-4. `lint` after edits; `checkpoint` only after validation passes.
+4. `lint` after edits; `checkpoint` immediately once validation passes — automatically, on
+   every verified incremental milestone, never gated on the user asking for a commit.
