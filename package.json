@@ -29,12 +29,18 @@
     "helpers": "bin/helpers.cjs"
   },
   "scripts": {
-    "postinstall": "node scripts/npm-postinstall.cjs"
+    "test": "node test/package-json.test.js",
+    "setup-git-hooks": "node scripts/setup-git-hooks.cjs",
+    "postinstall": "node scripts/npm-postinstall.cjs && npm run setup-git-hooks"
   },
   "files": [
     "bin/helpers.cjs",
     "scripts/npm-postinstall.cjs",
+    "scripts/setup-git-hooks.cjs",
     "README.md",
     "VERSION"
-  ]
+  ],
+  "devDependencies": {
+    "eslint": "^10.9.1"
+  }
 }
