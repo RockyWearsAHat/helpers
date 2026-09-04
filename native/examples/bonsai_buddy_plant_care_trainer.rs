@@ -1,138 +1,104 @@
-//! Example: bonsai-buddy training a plant-care detection model using the hypervector API.
+//! Example: Bonsai-Buddy Plant Care Model Trainer
 //!
-//! This demonstrates how an external project (bonsai-buddy) uses the public hv_model API
-//! to train and deploy a concept model for detecting common plant problems.
+//! This example demonstrates how an external project like bonsai-buddy can:
+//! 1. Train a domain-specific concept model from plant-care rules
+//! 2. Serialize the model for persistence (e.g., to a database or cache)
+//! 3. Load and use the model to confirm plant-care findings
 //!
-//! To run: `cargo run --example bonsai_buddy_plant_care_trainer --release`
+//! This shows the complete workflow: rules → training → serialization →
+//! deserialization → inference → decision.
 
 use helpers_native::hv_model::{HvRule, HypervectorModel};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Bonsai-Buddy Plant Care Trainer ===\n");
+fn main() {
+    println!("=== Bonsai-Buddy Plant Care Model Trainer ===\n");
 
-    // Step 1: Define plant-care rules (what bonsai-buddy cares about)
-    let rules = vec![
+    // Step 1: Define plant-care rules (concepts)
+    let plant_care_rules = vec![
         HvRule {
             id: "overwatering".into(),
-            description: "excessive water causes root rot and leaf yellowing".into(),
-            example: "daily watering leaves turning yellow drooping stems".into(),
+            description: "water too frequently causes root rot".into(),
+            example: "daily watering yellowing leaves".into(),
         },
         HvRule {
             id: "underwatering".into(),
-            description: "insufficient water causes dryness and leaf browning".into(),
-            example: "no water soil bone dry brown edges crispy leaves".into(),
+            description: "insufficient water causes dry leaves".into(),
+            example: "no water brown crispy edges".into(),
         },
         HvRule {
             id: "sunburn".into(),
-            description: "direct midday sun causes leaf bleaching and damage".into(),
-            example: "harsh sun white patches bleached leaves faded color".into(),
+            description: "direct midday sun bleaches leaves".into(),
+            example: "harsh direct sun white patches".into(),
         },
         HvRule {
-            id: "pest_infestation".into(),
-            description: "insects feed on leaves causing holes and spots".into(),
-            example: "holes on leaves sticky residue tiny insects spotted".into(),
+            id: "insufficient_light".into(),
+            description: "lack of light causes weak growth".into(),
+            example: "no sun leggy pale leaves".into(),
         },
         HvRule {
             id: "nutrient_deficiency".into(),
-            description: "lack of nutrients causes stunted growth and pale leaves".into(),
-            example: "weak growth pale yellow leaves small size".into(),
+            description: "missing nutrients causes stunted growth".into(),
+            example: "no fertilizer slow growth yellowing".into(),
         },
     ];
 
-    println!("Training model on {} plant-care rules...", rules.len());
-    let model = HypervectorModel::train(&rules);
+    println!("Step 1: Training model from {} plant-care rules...", plant_care_rules.len());
+
+    // Step 2: Train the model
+    let model = HypervectorModel::train(&plant_care_rules);
+    assert_eq!(model.rule_count(), plant_care_rules.len());
     println!("✓ Model trained with {} concepts\n", model.rule_count());
 
-    // Step 2: Use the model for inference — detecting problems in observations
-    println!("Running inference on plant observations:\n");
-
-    let observations = vec![
-        (
-            "overwatering",
-            vec!["daily", "watering", "yellowing", "leaves"],
-        ),
-        (
-            "underwatering",
-            vec!["no", "water", "brown", "dry", "edges"],
-        ),
-        ("sunburn", vec!["harsh", "sun", "white", "patches"]),
-        ("pest_infestation", vec!["holes", "leaves", "tiny", "insects"]),
-        ("nutrient_deficiency", vec!["pale", "yellow", "weak", "growth"]),
+    // Step 3: Demonstrate single inference
+    println!("Step 2: Single inference examples...");
+    let test_findings = vec![
+        ("overwatering", vec!["daily", "watering", "yellowing"]),
+        ("sunburn", vec!["harsh", "direct", "sun"]),
+        ("underwatering", vec!["no", "water", "brown"]),
     ];
 
-    // Confirm individually
-    println!("Individual verdicts:");
-    for (rule_id, tokens) in &observations {
-        let matches = model.confirm(rule_id, tokens);
-        println!(
-            "  {}: {} (tokens: {})",
-            rule_id,
-            if matches { "✓ YES" } else { "✗ NO" },
-            tokens.join(", ")
-        );
+    for (expected_rule, tokens) in &test_findings {
+        let keeps = model.confirm(expected_rule, tokens);
+        println!("  - Rule '{}' with tokens {:?}: {}", expected_rule, tokens, if keeps { "KEEP" } else { "REJECT" });
     }
+    println!("✓ Individual inference working\n");
 
-    println!();
-
-    // Step 3: Batch inference (what bonsai-buddy would use for efficiency)
-    println!("Batch inference (GPU-friendly):");
-    let batch_findings: Vec<(&str, Vec<&str>)> = observations
+    // Step 4: Batch inference (GPU-friendly, if thresholds met)
+    println!("Step 3: Batch inference (GPU-friendly)...");
+    let batch_items: Vec<(&str, Vec<&str>)> = test_findings
         .iter()
-        .map(|(id, tokens)| (*id, tokens.clone()))
+        .map(|(rule_id, tokens)| (rule_id.as_ref(), tokens.clone()))
         .collect();
 
-    let verdicts = model.confirm_batch(&batch_findings);
-    for (i, (rule_id, _tokens)) in observations.iter().enumerate() {
-        println!(
-            "  {}: {}",
-            rule_id,
-            if verdicts[i] { "✓ YES" } else { "✗ NO" }
-        );
+    let verdicts = model.confirm_batch(&batch_items);
+    println!("  - Batch verdicts: {:?}", verdicts);
+    assert_eq!(verdicts.len(), batch_items.len());
+    assert!(verdicts.iter().all(|v| *v), "all test cases should confirm");
+    println!("✓ Batch inference working ({} verdicts)\n", verdicts.len());
+
+    // Step 5: Serialization (for persistence to database/cache)
+    println!("Step 4: Model serialization for persistence...");
+    let serialized = model.serialize().expect("serialize");
+    println!("✓ Model serialized to {} bytes\n", serialized.len());
+
+    // Step 6: Deserialization and round-trip verification
+    println!("Step 5: Deserialization and round-trip verification...");
+    let loaded_model = HypervectorModel::deserialize(&serialized).expect("deserialize");
+    assert_eq!(loaded_model.rule_count(), model.rule_count());
+
+    // Verify loaded model gives same results
+    for (rule_id, tokens) in &test_findings {
+        let original_verdict = model.confirm(rule_id, tokens);
+        let loaded_verdict = loaded_model.confirm(rule_id, tokens);
+        assert_eq!(original_verdict, loaded_verdict, "round-trip verdict mismatch");
     }
+    println!("✓ Round-trip serialization verified\n");
 
-    println!();
-
-    // Step 4: Persistence (bonsai-buddy saves models for reuse)
-    println!("Serializing model to disk...");
-    let serialized = model.serialize()?;
-    println!(
-        "✓ Model serialized to {} bytes (HLM1 codec)\n",
-        serialized.len()
-    );
-
-    // Step 5: Load model from disk
-    println!("Deserializing model from bytes...");
-    let loaded_model = HypervectorModel::deserialize(&serialized)?;
-    println!(
-        "✓ Model loaded: {} concepts\n",
-        loaded_model.rule_count()
-    );
-
-    // Step 6: Verify loaded model works identically
-    println!("Verifying loaded model produces same results:");
-    let test_tokens = vec!["daily", "watering", "yellowing"];
-    let original_result = model.confirm("overwatering", &test_tokens);
-    let loaded_result = loaded_model.confirm("overwatering", &test_tokens);
-
-    println!(
-        "  Original model: {}",
-        if original_result { "match" } else { "no match" }
-    );
-    println!(
-        "  Loaded model:   {}",
-        if loaded_result { "match" } else { "no match" }
-    );
-    println!(
-        "  {} (round-trip successful)\n",
-        if original_result == loaded_result {
-            "✓ Agreement"
-        } else {
-            "✗ MISMATCH"
-        }
-    );
-
-    println!("=== Bonsai-Buddy Training Complete ===");
-    println!("The public hv_model API is fully functional for external projects.");
-
-    Ok(())
+    println!("=== Complete ===");
+    println!("The hv_model API is ready for external projects like bonsai-buddy to:");
+    println!("  1. Define domain-specific rules");
+    println!("  2. Train concept fingerprints");
+    println!("  3. Persist models to storage");
+    println!("  4. Load and infer at runtime");
+    println!("  5. Make keep/reject decisions based on concept matching");
 }
