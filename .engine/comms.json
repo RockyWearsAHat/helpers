@@ -1,0 +1,36 @@
+{
+  "updatedAt": "2026-09-04T05:56:31.2849007Z",
+  "agents": [
+    {
+      "id": "lead",
+      "role": "orchestrator",
+      "status": "running",
+      "updatedAt": "2026-09-04T05:53:08.519928Z"
+    },
+    {
+      "id": "planner",
+      "role": "planner",
+      "status": "active",
+      "updatedAt": "2026-09-04T05:53:38.2721167Z"
+    },
+    {
+      "id": "team-frontend-2",
+      "role": "builder",
+      "status": "active",
+      "updatedAt": "2026-09-04T05:56:31.2849007Z"
+    },
+    {
+      "id": "team-general-1",
+      "role": "builder",
+      "status": "active",
+      "updatedAt": "2026-09-04T05:56:30.2149527Z"
+    },
+    {
+      "id": "team-general-3",
+      "role": "builder",
+      "status": "active",
+      "updatedAt": "2026-09-04T05:56:30.2154692Z"
+    }
+  ],
+  "messages": null
+}

@@ -1,0 +1,109 @@
+{
+  "version": "v1",
+  "requestId": "1788501374594906700-700",
+  "sessionId": "task-1788501188502-b89c-team-team-frontend-2-step-5",
+  "projectPath": "D:\\SARA\\Desktop\\bin",
+  "objective": {
+    "statement": "Project: /",
+    "priority": "high"
+  },
+  "scope": {
+    "inScope": [
+      "Project: /"
+    ],
+    "outScope": [
+      "Deploy/publish actions unless explicit publish intent evidence is present"
+    ]
+  },
+  "constraints": [
+    "Preserve existing behavior unless user requests a behavior change",
+    "Run project-appropriate verification before completion",
+    "Do not deploy/publish without explicit intent evidence",
+    "Honor user-stated prohibitions exactly"
+  ],
+  "successCriteria": {
+    "items": [
+      "Project: /",
+      "You are executing step 6 of 1 in the build plan",
+      "STEP 6: **Run full test suite via scripts/test",
+      "capture all pass/fail verdicts**",
+      "Details: Module: scripts/test",
+      "sh and all test files in scripts/"
+    ],
+    "completionDefinition": "all success criteria met and verification passes"
+  },
+  "projectProfile": {
+    "projectPath": "D:\\SARA\\Desktop\\bin",
+    "type": "web-app",
+    "doneDefinition": [
+      "Project: /",
+      "You are executing step 6 of 1 in the build plan",
+      "STEP 6: **Run full test suite via scripts/test",
+      "capture all pass/fail verdicts**",
+      "Details: Module: scripts/test",
+      "sh and all test files in scripts/"
+    ],
+    "deployTarget": "local",
+    "verification": {
+      "usesPlaywright": true,
+      "startCmd": "pnpm dev",
+      "checkURL": "http://localhost:3000",
+      "port": 3000,
+      "checkCmds": null
+    },
+    "liveCheckCmd": "curl -sf http://localhost:3000",
+    "executionIntent": {
+      "publishIntent": "explicit",
+      "publishEvidence": [
+        {
+          "source": "request",
+          "excerpt": "2. GREEN: write the minimum production code that makes the test pass. Run the test again — confirm it now passes.",
+          "capturedAt": "2026-09-04T05:56:30Z"
+        }
+      ]
+    },
+    "workingBehaviors": [
+      "User can project: /",
+      "User can you are executing step 6 of 1 in the build plan",
+      "User can step 6: **run full test suite via scripts/test",
+      "User can capture all pass/fail verdicts**",
+      "User can details: module: scripts/test",
+      "User can sh and all test files in scripts/"
+    ]
+  },
+  "executionIntent": {
+    "publishIntent": "explicit",
+    "publishEvidence": [
+      {
+        "source": "request",
+        "excerpt": "2. GREEN: write the minimum production code that makes the test pass. Run the test again — confirm it now passes.",
+        "capturedAt": "2026-09-04T05:56:30Z"
+      }
+    ]
+  },
+  "style": {
+    "explicitStyleProvided": true,
+    "assumedStyle": "convention-safe default",
+    "assumptionNoticeSent": {
+      "chat": false,
+      "discord": false
+    }
+  },
+  "continuity": {
+    "completedSteps": [
+      "request intake captured",
+      "pre-start expansion generated"
+    ],
+    "nextStep": "execute highest-priority implementation step and run verification",
+    "knownRisks": null,
+    "unresolvedQuestions": null
+  },
+  "observability": {
+    "canaryEnabled": false,
+    "killSwitches": [
+      "publish-intent-gate",
+      "minimal-chat-policy"
+    ],
+    "traceId": "1788501374594906700-700"
+  }
+}
