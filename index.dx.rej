@@ -1,0 +1,10 @@
+diff a/index.dx b/index.dx	(rejected hunks)
+@@ -23,7 +23,7 @@ The working section — the designated first read of every turn, and its last wr
+ [ ] Expose the one-bit/hypervector model core (train + infer) as a reusable library API so bonsai-buddy can train a plant-care head on it (point at native/src/lint_sign.rs, hv_batch.rs, examples/*_train.rs)
+ [ ] Document the model shape in helpers.dx with complete specs for training and inference
+ [ ] Wire the helpers lint report intake (.helpers/lint-feedback.jsonl, scripts/lint-index-*.sh) into a worked errors.dx queue for SARA
+-[ ] Smoke test: verify every helpers MCP tool answers correctly and quickly
++[x] Smoke test: verify every helpers MCP tool answers correctly and quickly
+ ::end
+ 
+ ::heading level=2 id=findings

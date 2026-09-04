@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-04T05:56:31.2849007Z",
+  "updatedAt": "2026-09-04T06:26:44.6047511Z",
   "agents": [
     {
       "id": "lead",
@@ -14,22 +14,28 @@
       "updatedAt": "2026-09-04T05:53:38.2721167Z"
     },
     {
+      "id": "reviewer",
+      "role": "reviewer",
+      "status": "active",
+      "updatedAt": "2026-09-04T06:21:49.4923007Z"
+    },
+    {
       "id": "team-frontend-2",
       "role": "builder",
       "status": "active",
-      "updatedAt": "2026-09-04T05:56:31.2849007Z"
+      "updatedAt": "2026-09-04T06:26:44.6047511Z"
     },
     {
       "id": "team-general-1",
       "role": "builder",
       "status": "active",
-      "updatedAt": "2026-09-04T05:56:30.2149527Z"
+      "updatedAt": "2026-09-04T06:20:00.8989627Z"
     },
     {
       "id": "team-general-3",
       "role": "builder",
       "status": "active",
-      "updatedAt": "2026-09-04T05:56:30.2154692Z"
+      "updatedAt": "2026-09-04T06:24:32.1512315Z"
     }
   ],
   "messages": null

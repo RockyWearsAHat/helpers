@@ -9,6 +9,7 @@ pub mod embed;
 pub mod git;
 pub mod gitcli;
 pub mod hv_batch;
+pub mod hv_model;
 pub mod index;
 pub mod knowledge;
 pub mod lint_ai;
