@@ -4,6 +4,20 @@
 //! model from documented rules and confirming findings against it. Designed for reuse by
 //! projects like bonsai-buddy that need a trainable, fast concept matcher.
 //!
+//! ## Integration Points
+//!
+//! - **Training**: Uses [`crate::lint_ai::ConceptModel::compile`] to build concept fingerprints
+//!   from rules (see `native/src/lint_ai.rs` for the core Hv hypervector implementation).
+//! - **Batch Inference**: [`confirm_batch`](Self::confirm_batch) leverages [`crate::hv_batch::gate`]
+//!   for GPU-accelerated Hamming-distance queries (see `native/src/hv_batch.rs` for the batched
+//!   gate implementation). CPU fallback is automatic and transparent.
+//! - **Persistence**: Uses JSON serialization via serde; for cryptographic signing of model
+//!   manifests, see [`crate::lint_sign`] (e.g., `native/src/lint_sign.rs`) for Ed25519 utilities.
+//! - **Examples**: See `native/examples/*_train.rs` for training workflows:
+//!   - `bonsai_buddy_plant_care_trainer.rs` — end-to-end plant-care model training and inference
+//!   - `register_train.rs` — register polarity classification workflow
+//!   - `web_module_train.rs` — web construct module training harness
+//!
 //! ## Training
 //!
 //! A trained model learns from rules, each consisting of an id, description, and example:
