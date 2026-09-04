@@ -1,0 +1,8 @@
+#!/bin/bash
+# Pre-commit hook: Run eslint on staged files before commit
+
+eslint --fix $(git diff --cached --name-only --diff-filter=ACMR -- '*.js' '*.jsx' '*.ts' '*.tsx' 2>/dev/null) 2>/dev/null
+
+git add $(git diff --cached --name-only --diff-filter=ACMR -- '*.js' '*.jsx' '*.ts' '*.tsx' 2>/dev/null) 2>/dev/null
+
+exit 0
