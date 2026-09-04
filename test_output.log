@@ -1,0 +1,21 @@
+[test] run: bash -n git-copilot-quickstart
+[test] run: bash -n Helpers-Installer.sh
+[test] run: bash -n install-helpers
+[test] run: bash -n scripts/community-cache-submit.sh
+[test] run: bash -n scripts/community-cache-pull.sh
+[test] run: bash -n scripts/community-research-submit.sh
+[test] run: bash -n scripts/build-native-binaries.sh
+[test] run: bash -n scripts/verify-install.sh
+[test] run: bash -n scripts/build-pkg.sh
+[test] run: bash -n scripts/pkg/postinstall
+[test] run: bash -n scripts/pkg/core-scripts/postinstall
+[test] run: bash -n scripts/pkg/audit-scripts/postinstall
+[test] run: bash -n scripts/pkg/vscode-scripts/postinstall
+[test] run: bash ./scripts/test-gitcli.sh
+[test] run: node ./scripts/test-patch-vscode-argv.js
+[test] run: node --check ./scripts/patch-vscode-argv.js
+[test] run: node --check ./scripts/patch-vscode-runsubagent-model.js
+[test] run: node ./scripts/build-pages-search-site.js
+[test] run: node ./scripts/test-project-index.js
+[test] run: bash ./scripts/build-dist.sh
+TEST_SUMMARY: pass 20/20
