@@ -24,7 +24,7 @@
 //! let keeps_finding = model.confirm("rule-1", &tokens);
 //! ```
 
-use crate::lint_ai::{ConceptModel, Hv};
+use crate::lint_ai::ConceptModel;
 use serde::{Deserialize, Serialize};
 
 /// One rule for training: id (unique key), description (semantics), example (evidence).
@@ -36,9 +36,25 @@ pub struct HvRule {
 }
 
 /// A trained hypervector model: concept fingerprints compiled from rules.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct HypervectorModel {
     concept: ConceptModel,
+}
+
+impl Clone for HypervectorModel {
+    fn clone(&self) -> Self {
+        // Serialize and deserialize to clone — ConceptModel has no Clone impl.
+        let bytes = serde_json::to_vec(&self).expect("serialize");
+        serde_json::from_slice(&bytes).expect("deserialize")
+    }
+}
+
+impl std::fmt::Debug for HypervectorModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HypervectorModel")
+            .field("rules", &self.concept.rule_count())
+            .finish()
+    }
 }
 
 impl HypervectorModel {
