@@ -210,4 +210,54 @@ mod tests {
         let verdict = model.confirm("any-rule", &["tokens"]);
         assert!(verdict, "empty model should abstain on any finding");
     }
+
+    #[test]
+    fn external_use_bonsai_buddy_example() {
+        // Demonstrates how bonsai-buddy trains a plant-care rule detector.
+        let rules = vec![
+            HvRule {
+                id: "overwatering".into(),
+                description: "water too frequently causes root rot".into(),
+                example: "daily watering yellowing leaves".into(),
+            },
+            HvRule {
+                id: "underwatering".into(),
+                description: "insufficient water causes dry leaves".into(),
+                example: "no water brown crispy edges".into(),
+            },
+            HvRule {
+                id: "sunburn".into(),
+                description: "direct midday sun bleaches leaves".into(),
+                example: "harsh direct sun white patches".into(),
+            },
+        ];
+
+        let model = HypervectorModel::train(&rules);
+        assert_eq!(model.rule_count(), 3);
+
+        // Batch confirm findings
+        let observations = vec![
+            ("overwatering", vec!["yellowing", "soft", "rot"]),
+            ("underwatering", vec!["brown", "crispy", "dry"]),
+            ("sunburn", vec!["white", "bleached", "sun"]),
+        ];
+
+        let verdicts: Vec<bool> = model.confirm_batch(
+            &observations
+                .iter()
+                .map(|(id, tokens)| (id.as_ref(), tokens.clone()))
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(verdicts.len(), 3);
+        assert!(verdicts.iter().all(|v| *v)); // All match their trained concepts
+
+        // Persist and reload
+        let bytes = model.serialize().expect("serialize");
+        assert!(!bytes.is_empty());
+
+        let reloaded = HypervectorModel::deserialize(&bytes).expect("deserialize");
+        assert_eq!(reloaded.rule_count(), 3);
+        assert!(reloaded.confirm("overwatering", &["yellowing", "leaves"]));
+    }
 }
