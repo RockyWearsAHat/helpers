@@ -15,6 +15,30 @@ PATH, and registers the MCP server with any AI agent it detects.
 
 ---
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Why a Single Binary](#why-a-single-binary)
+- [Install](#install)
+- [Use It (the `helpers` CLI)](#use-it-the-helpers-cli)
+- [Usage Examples](#usage-examples)
+  - [Project Indexing](#project-indexing)
+  - [Git Helpers](#git-helpers-busybox-style-subcommands)
+  - [Quality Gates](#quality-gates-linting--checking)
+  - [Knowledge & Memory](#knowledge--memory)
+  - [Web Research](#web-research-gated)
+- [Architecture Overview](#architecture-overview)
+  - [Design Philosophy](#design-philosophy)
+  - [Component Structure](#component-structure)
+  - [Platform Support](#platform-support)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Resources](#resources)
+- [License](#license)
+
+---
+
 ## Quick Start
 
 ### 1. Install
