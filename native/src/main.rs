@@ -21,21 +21,33 @@ use helpers_native::mcp;
 use helpers_native::proto::{emit_content, emit_error};
 use helpers_native::registry;
 
+/// Strip a trailing `.exe` suffix (case-insensitive) from a string.
+/// Used to normalize argv[0] on Windows where the binary name includes .exe.
+fn strip_exe(s: &str) -> String {
+    if s.len() > 4 && s[s.len() - 4..].eq_ignore_ascii_case(".exe") {
+        s[..s.len() - 4].to_string()
+    } else {
+        s.to_string()
+    }
+}
+
 fn main() -> ExitCode {
     // Busybox-style dispatch: when invoked through a `git-*` symlink, argv[0]'s
-    // basename selects the ported CLI.
+    // basename selects the ported CLI. On Windows, argv[0] includes .exe, so
+    // strip it before matching CLI_NAMES.
     if let Some(basename) = std::env::args().next().and_then(|a| {
         Path::new(&a)
             .file_name()
             .and_then(|n| n.to_str())
             .map(str::to_string)
     }) {
-        if gitcli::is_cli(&basename) {
+        let basename_normalized = strip_exe(&basename);
+        if gitcli::is_cli(&basename_normalized) {
             let args: Vec<String> = std::env::args().skip(1).collect();
-            return gitcli::dispatch(&basename, &args);
+            return gitcli::dispatch(&basename_normalized, &args);
         }
         // Invoked as the `helpers` control CLI (a symlink to this binary).
-        if basename == "helpers" || basename == "helpers.exe" {
+        if basename_normalized == "helpers" {
             let args: Vec<String> = std::env::args().skip(1).collect();
             return cli::run(&args);
         }
@@ -252,5 +264,38 @@ fn run_call(tool: Option<&str>) -> ExitCode {
             emit_error(&format!("unknown native tool: {name}"));
             ExitCode::from(3)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_exe_windows_binary() {
+        assert_eq!(strip_exe("git-checkpoint.exe"), "git-checkpoint");
+    }
+
+    #[test]
+    fn test_strip_exe_case_insensitive() {
+        assert_eq!(strip_exe("git-checkpoint.EXE"), "git-checkpoint");
+        assert_eq!(strip_exe("git-checkpoint.Exe"), "git-checkpoint");
+    }
+
+    #[test]
+    fn test_strip_exe_no_extension() {
+        assert_eq!(strip_exe("git-checkpoint"), "git-checkpoint");
+    }
+
+    #[test]
+    fn test_strip_exe_helpers() {
+        assert_eq!(strip_exe("helpers.exe"), "helpers");
+        assert_eq!(strip_exe("helpers"), "helpers");
+    }
+
+    #[test]
+    fn test_strip_exe_only_exe() {
+        assert_eq!(strip_exe(".exe"), ".exe"); // Too short
+        assert_eq!(strip_exe("exe"), "exe");   // Not .exe
     }
 }
