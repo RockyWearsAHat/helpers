@@ -32,6 +32,8 @@ cd "$work"
 git init -q
 git config user.email test@example.com
 git config user.name test
+git config core.autocrlf false
+git config core.safecrlf false
 echo "hello" >a.txt
 git commit -qm init --allow-empty
 git add a.txt && git commit -qm "add a"
