@@ -67,3 +67,6 @@ lint-index/*.json
 !lint-index/extensions-bootstrap.json
 !lint-index/char-structure-bootstrap.json
 !lint-index/trusted-keys.json
+# dx: the local index is rebuildable from .doc/repo.dxcp
+.doc/coverage.jsonl
+.doc/local.dxcp
