@@ -1,0 +1,39 @@
+{
+  "projectPath": "D:\\SARA\\Desktop\\bin",
+  "type": "web-app",
+  "doneDefinition": [
+    "Project: /",
+    "You are executing step 6 of 1 in the build plan",
+    "STEP 6: **Run full test suite via scripts/test",
+    "capture all pass/fail verdicts**",
+    "Details: Module: scripts/test",
+    "sh and all test files in scripts/"
+  ],
+  "deployTarget": "local",
+  "verification": {
+    "usesPlaywright": true,
+    "startCmd": "pnpm dev",
+    "checkURL": "http://localhost:3000",
+    "port": 3000,
+    "checkCmds": null
+  },
+  "liveCheckCmd": "curl -sf http://localhost:3000",
+  "executionIntent": {
+    "publishIntent": "explicit",
+    "publishEvidence": [
+      {
+        "source": "request",
+        "excerpt": "2. GREEN: write the minimum production code that makes the test pass. Run the test again — confirm it now passes.",
+        "capturedAt": "2026-09-04T05:56:30Z"
+      }
+    ]
+  },
+  "workingBehaviors": [
+    "User can project: /",
+    "User can you are executing step 6 of 1 in the build plan",
+    "User can step 6: **run full test suite via scripts/test",
+    "User can capture all pass/fail verdicts**",
+    "User can details: module: scripts/test",
+    "User can sh and all test files in scripts/"
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "ProjectPath": "D:\\SARA\\Desktop\\bin",
+  "Owner": "",
+  "Repo": "",
+  "Brief": "You are preparing the project at D:\\SARA\\Desktop\\bin for autonomous work. Before SARA starts dispatching worklist items to you and others, verify and document:\n\n1. **Environment**: The project builds and runs cleanly in isolation. Check PATH, credentials (.env if needed), system dependencies, installed packages.\n2. **Credentials \u0026 Secrets**: Any API keys, GitHub tokens, or credentials needed are in place and working. Verify with a quick test if possible.\n3. **Build System**: The build (npm install, cargo build, poetry install, etc.) completes without errors. Document the build command.\n4. **Test Suite**: Run the existing test suite if one exists. Fix any pre-existing failures (they block detection of new breakage).\n5. **Development Setup**: Editor config, linters, formatters, git hooks all working. Commit setup changes if any were needed.\n6. **Documentation**: index.dx or README clearly states:\n   - How to build and test this project\n   - Where to find the actual code entry points\n   - What the main moving parts are\n   - Any project-specific rules or conventions\n\nDo not implement features or fix bugs — setup is verification only. If something is broken or unclear, fix it enough that the next worker gets a clean slate. Commit your work (or note what you could not fix). When done, say \"Setup complete\" to mark this project ready.",
+  "requirements": {
+    "prd": "",
+    "design": ""
+  },
+  "plan": [
+    {
+      "index": 1,
+      "title": "**Verify Node.js and npm versions meet project requirements**",
+      "body": "Module: package.json / bin/helpers.cjs. Acceptance: `node --version \u0026\u0026 npm --version` returns \u003e=18 for Node, any npm version; both commands succeed with no errors.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 2,
+      "title": "**Check npm package.json is valid and dependencies list exists**",
+      "body": "Module: package.json. Acceptance: `npm ls --depth=0 2\u003e\u00261 | grep -E \"^[a-z@]|ERR!\"` returns valid dependency tree with no ERR! lines.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 3,
+      "title": "**Verify postinstall script syntax and can read VERSION file**",
+      "body": "Module: scripts/npm-postinstall.cjs, VERSION. Acceptance: `node scripts/npm-postinstall.cjs --dry-run 2\u003e/dev/null || echo \"script loads\"` completes without syntax errors; `cat VERSION` returns valid semver.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 4,
+      "title": "**Run npm install; verify native binary downloads to correct path**",
+      "body": "Module: bin/, scripts/npm-postinstall.cjs, .gitignore. Acceptance: `rm -f helpers-native* \u0026\u0026 npm install \u0026\u0026 test -f helpers-native* \u0026\u0026 echo \"OK\"` exits 0 and binary exists in root.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 5,
+      "title": "**Verify binary executable via CLI wrapper; check version matches package.json**",
+      "body": "Module: bin/helpers.cjs, helpers-native. Acceptance: `node bin/helpers.cjs --version 2\u003e\u00261` matches `cat VERSION`; command exits 0.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 6,
+      "title": "**Run full test suite via scripts/test.sh; capture all pass/fail verdicts**",
+      "body": "Module: scripts/test.sh and all test files in scripts/. Acceptance: `bash scripts/test.sh 2\u003e\u00261 | tail -20` shows \"PASS\" or lists only expected failures (if pre-existing).",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 7,
+      "title": "**Check git hooks are installed and linting runs on commit attempt**",
+      "body": "Module: .git/hooks/, .vscode/settings.json. Acceptance: `ls -la .git/hooks/pre-commit 2\u003e/dev/null \u0026\u0026 echo \"hook exists\"` or `grep -q eslint .git/hooks/* 2\u003e/dev/null || echo \"no lint hook\"` identifies linting mechanism.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 8,
+      "title": "**Verify .env and credentials are present (if required by postinstall or build scripts)**",
+      "body": "Module: scripts/npm-postinstall.cjs, scripts/build-*.sh. Acceptance: `grep -r \"process.env\\|GH_TOKEN\\|NPM_TOKEN\" scripts/ | head -5` identifies required env vars; `test -f .env || echo \"no .env needed\"` confirms whether .env must exist.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 9,
+      "title": "**Commit or stash all working-tree changes (.cache, .engine, .dx files)**",
+      "body": "Module: .git, git index. Acceptance: `git status --short | wc -l` returns 0 (all changes committed) or 2+ (only .cache, .engine untracked are OK to leave).",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 10,
+      "title": "**Run full end-to-end: fresh npm install in temp dir, execute CLI, verify output**",
+      "body": "Module: bin/, package.json, scripts/npm-postinstall.cjs, native binary. Acceptance: `mkdir /tmp/test-helpers \u0026\u0026 cd /tmp/test-helpers \u0026\u0026 npm install /path/to/helpers \u0026\u0026 node bin/helpers.cjs --help 2\u003e\u00261 | grep -q \"Usage\\|Commands\"` exits 0 and shows help text.",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 11,
+      "title": "**Build npm distribution artifact; verify files in package.json 'files' array are present**",
+      "body": "Module: bin/helpers.cjs, scripts/npm-postinstall.cjs, README.md, VERSION. Acceptance: `npm pack --dry-run 2\u003e\u00261 | grep -E \"\\.cjs|README|VERSION\" | wc -l` ≥3 (all required files listed).",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    },
+    {
+      "index": 12,
+      "title": "**Publish to npm registry (if credentials present); verify live package is installable**",
+      "body": "Module: package.json, .npmrc (or environment), registry. Acceptance: `npm publish --dry-run 2\u003e\u00261 | grep -i \"published\\|would publish\"` succeeds; after real publish, `npm info @rockywearsahat/helpers version` returns current version and `curl -s https://registry.npmjs.org/@rockywearsahat/helpers | jq .version` matches package.json version. Write live URL to `.engine/live-url.txt`.\n\n---\n\n**Ready to dispatch to Haiku agents once you confirm the plan.**",
+      "done": false,
+      "attempts": 0,
+      "updatedAt": "2026-09-04T05:55:38Z"
+    }
+  ],
+  "teams": {
+    "team-frontend-0": {
+      "id": "team-frontend-0",
+      "role": "frontend",
+      "assigned_steps": [
+        0
+      ],
+      "status": "queued",
+      "depends_on": null,
+      "started_at": "0001-01-01T00:00:00Z",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-frontend-2": {
+      "id": "team-frontend-2",
+      "role": "frontend",
+      "assigned_steps": [
+        5
+      ],
+      "status": "running",
+      "depends_on": null,
+      "started_at": "2026-09-03T23:55:38.7662775-06:00",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-frontend-4": {
+      "id": "team-frontend-4",
+      "role": "frontend",
+      "assigned_steps": [
+        7
+      ],
+      "status": "queued",
+      "depends_on": null,
+      "started_at": "0001-01-01T00:00:00Z",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-frontend-6": {
+      "id": "team-frontend-6",
+      "role": "frontend",
+      "assigned_steps": [
+        10
+      ],
+      "status": "queued",
+      "depends_on": null,
+      "started_at": "0001-01-01T00:00:00Z",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-general-1": {
+      "id": "team-general-1",
+      "role": "general",
+      "assigned_steps": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "running",
+      "depends_on": null,
+      "started_at": "2026-09-03T23:55:38.7625951-06:00",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-general-3": {
+      "id": "team-general-3",
+      "role": "general",
+      "assigned_steps": [
+        6
+      ],
+      "status": "running",
+      "depends_on": null,
+      "started_at": "2026-09-03T23:55:38.7876453-06:00",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-general-5": {
+      "id": "team-general-5",
+      "role": "general",
+      "assigned_steps": [
+        8,
+        9
+      ],
+      "status": "queued",
+      "depends_on": null,
+      "started_at": "0001-01-01T00:00:00Z",
+      "completed_at": "0001-01-01T00:00:00Z"
+    },
+    "team-general-7": {
+      "id": "team-general-7",
+      "role": "general",
+      "assigned_steps": [
+        11
+      ],
+      "status": "queued",
+      "depends_on": null,
+      "started_at": "0001-01-01T00:00:00Z",
+      "completed_at": "0001-01-01T00:00:00Z"
+    }
+  },
+  "outer_iterations": 1,
+  "started_at": "2026-09-03T23:53:08.519928-06:00",
+  "updated_at": "2026-09-03T23:55:38.7876453-06:00",
+  "completed_at": "0001-01-01T00:00:00Z",
+  "session_id_prefix": "task-1788501188502-b89c",
+  "state_slug": "task-1788501188502-b89c"
+}
