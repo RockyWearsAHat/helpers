@@ -1,4 +1,5 @@
 .DS_Store
+/node_modules/
 # Compiled C shim — platform-specific, built on install from helpers-mcp.c
 helpers-mcp
 # Native MCP tools — platform-specific, built on install from native/ (Rust).
