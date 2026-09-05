@@ -177,7 +177,9 @@ fn main() {
             welding_example = Some((url.clone(), snippet));
         }
 
-        let hand = read_doc_page(url, body, en, &bridge);
+        let attested: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let construction_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let hand = read_doc_page(url, body, en, &bridge, &attested, &construction_map);
         if hand.prohibited {
             a.prohib_pages += 1;
             let hand_gov = hand.governing.join(" \u{2022} ");
