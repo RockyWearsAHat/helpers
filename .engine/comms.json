@@ -1,41 +1,23 @@
 {
-  "updatedAt": "2026-09-04T06:26:44.6047511Z",
+  "updatedAt": "2026-09-05T20:10:24.8882947Z",
   "agents": [
     {
       "id": "lead",
       "role": "orchestrator",
       "status": "running",
-      "updatedAt": "2026-09-04T05:53:08.519928Z"
-    },
-    {
-      "id": "planner",
-      "role": "planner",
-      "status": "active",
-      "updatedAt": "2026-09-04T05:53:38.2721167Z"
+      "updatedAt": "2026-09-05T19:46:06.6687894Z"
     },
     {
       "id": "reviewer",
       "role": "reviewer",
       "status": "active",
-      "updatedAt": "2026-09-04T06:21:49.4923007Z"
+      "updatedAt": "2026-09-05T20:10:24.8882947Z"
     },
     {
-      "id": "team-frontend-2",
-      "role": "builder",
-      "status": "active",
-      "updatedAt": "2026-09-04T06:26:44.6047511Z"
-    },
-    {
-      "id": "team-general-1",
-      "role": "builder",
-      "status": "active",
-      "updatedAt": "2026-09-04T06:20:00.8989627Z"
-    },
-    {
-      "id": "team-general-3",
-      "role": "builder",
-      "status": "active",
-      "updatedAt": "2026-09-04T06:24:32.1512315Z"
+      "id": "team-general-0",
+      "role": "general",
+      "status": "failed",
+      "updatedAt": "2026-09-05T20:08:03.3724537Z"
     }
   ],
   "messages": null

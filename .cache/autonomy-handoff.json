@@ -1,15 +1,15 @@
 {
   "version": "v1",
-  "requestId": "1788503203662158500-500",
-  "sessionId": "task-1788501188502-b89c-team-team-frontend-2-step-5",
+  "requestId": "1788639534820723300-300",
+  "sessionId": "task-1788637566610-8c7c-validate-1",
   "projectPath": "D:\\SARA\\Desktop\\bin",
   "objective": {
-    "statement": "Continue working on this step.",
+    "statement": "Run the full test suite and verify the project builds. Report any failures.",
     "priority": "high"
   },
   "scope": {
     "inScope": [
-      "Continue working on this step."
+      "Run the full test suite and verify the project builds. Report any failures."
     ],
     "outScope": [
       "Deploy/publish actions unless explicit publish intent evidence is present"
@@ -22,48 +22,57 @@
   ],
   "successCriteria": {
     "items": [
-      "Continue working on this step"
+      "Run the full test suite and verify the project builds",
+      "Report any failures",
+      "If all tests pass and the project is ready for production, respond with: VALIDATION_PASSED",
+      "Otherwise, describe the failures and what needs to be fixed"
     ],
     "completionDefinition": "all success criteria met and verification passes"
   },
   "projectProfile": {
     "projectPath": "D:\\SARA\\Desktop\\bin",
-    "type": "cli",
+    "type": "web-app",
     "doneDefinition": [
-      "UBIQUITOUS LANGUAGE (the diff must use these terms):",
-      "=== PROJECT DOCUMENTS (dx, searched for this step) ===",
-      "dx#arch-shim-note]",
-      "The npm package installs a thin Node shim (above) purely as npm's required entry point",
-      "it does no work itself — it `spawnSync`s the downloaded native binary with `cli` prepended to argv and forwards stdio and exit code",
-      "Every other install method (script installer, Homebrew, Scoop, winget, apt, direct binary) runs the native binary with no Node involved a..."
+      "Run the full test suite and verify the project builds",
+      "Report any failures",
+      "If all tests pass and the project is ready for production, respond with: VALIDATION_PASSED",
+      "Otherwise, describe the failures and what needs to be fixed"
     ],
-    "deployTarget": "npm",
+    "deployTarget": "local",
     "verification": {
-      "usesPlaywright": false,
-      "startCmd": "",
-      "checkURL": "",
-      "port": 0,
-      "checkCmds": [
-        "go build -o /tmp/cli-check . \u0026\u0026 /tmp/cli-check --version"
+      "usesPlaywright": true,
+      "startCmd": "pnpm dev",
+      "checkURL": "http://localhost:3000",
+      "port": 3000,
+      "checkCmds": null
+    },
+    "liveCheckCmd": "curl -sf http://localhost:3000",
+    "executionIntent": {
+      "publishIntent": "explicit",
+      "publishEvidence": [
+        {
+          "source": "request",
+          "excerpt": "If all tests pass and the project is ready for production, respond with: VALIDATION_PASSED",
+          "capturedAt": "2026-09-05T20:10:12Z"
+        }
       ]
     },
-    "liveCheckCmd": "go build -o /tmp/cli-check . \u0026\u0026 /tmp/cli-check --version",
-    "executionIntent": {
-      "publishIntent": "none",
-      "publishEvidence": null
-    },
     "workingBehaviors": [
-      "User can ubiquitous language (the diff must use these terms):",
-      "User can === project documents (dx, searched for this step) ===",
-      "User can dx#arch-shim-note]",
-      "User can the npm package installs a thin node shim (above) purely as npm's required entry point",
-      "User can it does no work itself — it `spawnsync`s the downloaded native binary with `cli` prepended to argv and forwards stdio and exit code",
-      "User can every other install method (script installer, homebrew, scoop, winget, apt, direct binary) runs the native binary with no node involved a.."
+      "User can run the full test suite and verify the project builds",
+      "User can report any failures",
+      "User can if all tests pass and the project is ready for production, respond with: validation_passed",
+      "User can otherwise, describe the failures and what needs to be fixed"
     ]
   },
   "executionIntent": {
-    "publishIntent": "none",
-    "publishEvidence": null
+    "publishIntent": "explicit",
+    "publishEvidence": [
+      {
+        "source": "request",
+        "excerpt": "If all tests pass and the project is ready for production, respond with: VALIDATION_PASSED",
+        "capturedAt": "2026-09-05T20:10:12Z"
+      }
+    ]
   },
   "style": {
     "explicitStyleProvided": false,
@@ -80,9 +89,7 @@
       "latest summary updated"
     ],
     "nextStep": "execute highest-priority implementation step and run verification",
-    "knownRisks": [
-      "publish/deploy is denied until explicit evidence is provided"
-    ],
+    "knownRisks": null,
     "unresolvedQuestions": null
   },
   "observability": {
@@ -91,6 +98,6 @@
       "publish-intent-gate",
       "minimal-chat-policy"
     ],
-    "traceId": "1788503203662158500-500"
+    "traceId": "1788639534820723300-300"
   }
 }
