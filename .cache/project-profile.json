@@ -2,12 +2,10 @@
   "projectPath": "D:\\SARA\\Desktop\\bin",
   "type": "web-app",
   "doneDefinition": [
-    "Project: /",
-    "You are executing step 6 of 1 in the build plan",
-    "STEP 6: **Run full test suite via scripts/test",
-    "capture all pass/fail verdicts**",
-    "Details: Module: scripts/test",
-    "sh and all test files in scripts/"
+    "Run the full test suite and verify the project builds",
+    "Report any failures",
+    "If all tests pass and the project is ready for production, respond with: VALIDATION_PASSED",
+    "Otherwise, describe the failures and what needs to be fixed"
   ],
   "deployTarget": "local",
   "verification": {
@@ -23,17 +21,15 @@
     "publishEvidence": [
       {
         "source": "request",
-        "excerpt": "2. GREEN: write the minimum production code that makes the test pass. Run the test again — confirm it now passes.",
-        "capturedAt": "2026-09-04T05:56:30Z"
+        "excerpt": "If all tests pass and the project is ready for production, respond with: VALIDATION_PASSED",
+        "capturedAt": "2026-09-05T20:10:12Z"
       }
     ]
   },
   "workingBehaviors": [
-    "User can project: /",
-    "User can you are executing step 6 of 1 in the build plan",
-    "User can step 6: **run full test suite via scripts/test",
-    "User can capture all pass/fail verdicts**",
-    "User can details: module: scripts/test",
-    "User can sh and all test files in scripts/"
+    "User can run the full test suite and verify the project builds",
+    "User can report any failures",
+    "User can if all tests pass and the project is ready for production, respond with: validation_passed",
+    "User can otherwise, describe the failures and what needs to be fixed"
   ]
 }
