@@ -6,6 +6,7 @@
 use helpers_native::lint_attest::Attestation;
 use helpers_native::lint_char;
 use helpers_native::lint_codec::{self, Dec};
+use helpers_native::lint_construct;
 use helpers_native::lint_english;
 use helpers_native::lint_module::{self, Outcome};
 use helpers_native::lint_trace::{run_plan, Plan};
@@ -98,7 +99,9 @@ fn main() {
     let union: Vec<(String, String)> = { let mut u = load("python-library"); u.extend(load("rust-std")); u };
     for lang in ["python", "rust"] {
         let mem = reconstruct_memory(&union);
-        let outcomes = lint_module::graduate(lang, &union, &mem, m, en);
+        let constructions = lint_construct::load(lang);
+        let all_urls: std::collections::HashSet<String> = union.iter().map(|(u, _)| u.clone()).collect();
+        let (outcomes, _, _, _, _) = lint_module::graduate(lang, union.clone(), &mem, m, en, &constructions, &all_urls);
         let cross: Vec<String> = outcomes.iter()
             .filter_map(|o| o.rule.as_ref().map(|(_, url)| url.clone()))
             .filter(|u| if lang == "python" { u.contains("rust-lang") } else { u.contains("python.org") })
@@ -119,7 +122,8 @@ fn main() {
             let aset: std::collections::HashSet<String> =
                 pages.iter().filter(|(_, bb)| att.attests(bb)).map(|(uu, _)| uu.clone()).collect();
             let bridge = helpers_native::lint_trace::Bridge::new(m, en);
-            let dp = helpers_native::lint_lang_layer::read_doc_page(u, b, en, &bridge, &aset);
+            let construction_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+            let dp = helpers_native::lint_lang_layer::read_doc_page(u, b, en, &bridge, &aset, &construction_map);
             let corpus: Vec<String> = code_interiors(b).into_iter().filter(|s| s.trim().len() >= 3).take(40).collect();
             println!("   DEBUG page {u}");
             println!("     has class=deprecated: {}  has dotted-id: {}",
@@ -155,9 +159,10 @@ fn main() {
         let aset: std::collections::HashSet<String> =
             pages.iter().filter(|(_, bb)| att.attests(bb)).map(|(uu, _)| uu.clone()).collect();
         let bridge = helpers_native::lint_trace::Bridge::new(m, en);
+        let construction_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
         let mut passing = 0; let mut sample: Vec<String> = Vec::new();
         for (u, b) in pages.iter().filter(|(_, bb)| att.attests(bb)) {
-            let dp = helpers_native::lint_lang_layer::read_doc_page(u, b, en, &bridge, &aset);
+            let dp = helpers_native::lint_lang_layer::read_doc_page(u, b, en, &bridge, &aset, &construction_map);
             if !dp.prohibited || dp.constructs.is_empty() { continue; }
             let own: Vec<String> = code_interiors(b).into_iter().map(|s| s.trim().to_string()).filter(|s| s.len() >= 3).collect();
             let pass = dp.constructs.iter().any(|c| {
@@ -176,7 +181,7 @@ fn main() {
         };
         for probe2 in probes {
             let Some((u, b)) = pages.iter().find(|(uu, bb)| uu.contains(probe2) && att.attests(bb)) else { continue };
-            let dp = helpers_native::lint_lang_layer::read_doc_page(u, b, en, &bridge, &aset);
+            let dp = helpers_native::lint_lang_layer::read_doc_page(u, b, en, &bridge, &aset, &construction_map);
             let ex = &dp.example_code;
             let chosen = dp.constructs.iter().find(|c| ex.iter().any(|blk| cin(blk, c) && !run_plan(&Plan::UsesConstruct { construct: (*c).clone() }, lang, blk).is_empty()));
             println!("   PROPOSE-DEBUG {probe2}: marked ({}): {:?} chosen={chosen:?}",
@@ -186,7 +191,8 @@ fn main() {
         println!("   proposed() candidates: {} ; sample {:?}", cands.len(),
                  cands.iter().take(8).map(|c| c.construct.clone()).collect::<Vec<_>>());
         let t = std::time::Instant::now();
-        let outcomes = lint_module::graduate(lang, &pages, &memory, m, en);
+        let constructions = lint_construct::load(lang);
+        let (outcomes, _, _, _, _) = lint_module::graduate(lang, pages.clone(), &memory, m, en, &constructions, &aset);
         let proven: Vec<&Outcome> = outcomes.iter().filter(|o| o.rule.is_some()).collect();
         println!("   {} candidates, {} PROVEN, {:.2}s", outcomes.len(), proven.len(), t.elapsed().as_secs_f64());
         for o in proven.iter().take(30) {
