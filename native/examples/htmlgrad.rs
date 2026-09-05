@@ -66,7 +66,8 @@ fn main() {
         let Some(pages) = decode_crawl(&std::fs::read(&path).unwrap()) else { continue };
         for pg in pages {
             let Some(el) = element_of(&pg.url) else { continue };
-            pool.extend(page_witnesses(&el, &pg.body));
+            let (witnesses, _) = page_witnesses(&el, &pg.body);
+            pool.extend(witnesses);
         }
     }
     let before = pool.len();

@@ -60,7 +60,8 @@ fn main() {
             if let Some(pages) = decode_crawl(&std::fs::read(&path).unwrap()) {
                 for pg in pages {
                     if let Some(el) = element_of(&pg.url) {
-                        by_source.entry("mdn").or_default().extend(page_witnesses(&el, &pg.body));
+                        let (witnesses, _) = page_witnesses(&el, &pg.body);
+                        by_source.entry("mdn").or_default().extend(witnesses);
                     }
                 }
             }
@@ -69,7 +70,8 @@ fn main() {
     // WHATWG — one page, all text-level elements, keyed by section anchor.
     let whatwg = format!("{dir}/whatwg-text-level-semantics.html");
     if let Ok(html) = std::fs::read_to_string(&whatwg) {
-        by_source.entry("whatwg").or_default().extend(whatwg_witnesses(&html));
+        let witnesses = whatwg_witnesses(&html);
+        by_source.entry("whatwg").or_default().extend(witnesses);
     }
     // W3Schools — per-tag pages, keyed by tag name from the filename.
     for entry in std::fs::read_dir(&dir).unwrap() {
@@ -77,7 +79,8 @@ fn main() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         if let Some(tag) = name.strip_prefix("w3schools-tag_").and_then(|s| s.strip_suffix(".html")) {
             let html = std::fs::read_to_string(&path).unwrap();
-            by_source.entry("w3schools").or_default().extend(w3schools_witnesses(tag, &html));
+            let witnesses = w3schools_witnesses(tag, &html);
+            by_source.entry("w3schools").or_default().extend(witnesses);
         }
     }
 
