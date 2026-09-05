@@ -191,7 +191,8 @@ fn main() {
                 }
             };
         let t = Instant::now();
-        let outcomes = lint_module::graduate(lang, &lang_pages, &memory, m, en, &[]);
+        let owned: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let (outcomes, _, _, _, _) = lint_module::graduate(lang, lang_pages.clone(), &memory, m, en, &[], &owned);
         let elapsed = t.elapsed();
         total += elapsed;
         let proven: Vec<&Outcome> = outcomes.iter().filter(|o| o.rule.is_some()).collect();

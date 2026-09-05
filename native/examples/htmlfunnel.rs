@@ -91,8 +91,8 @@ fn main() {
         helpers_native::lint_read::Memory::default()
     });
     let constructions = helpers_native::lint_construct::load("html");
-    let (outcomes, _read, _corr): (Vec<Outcome>, _, _) =
-        lint_module::graduate("html", &pages, &memory, m, en, &constructions);
+    let (outcomes, _, _, _, _) =
+        lint_module::graduate("html", pages.clone(), &memory, m, en, &constructions, &attested);
     let by_construct: std::collections::HashMap<String, &Outcome> =
         outcomes.iter().map(|o| (o.candidate.construct.clone(), o)).collect();
 
@@ -108,7 +108,8 @@ fn main() {
         let idx = *idxs.iter().find(|&&i| pages[i].0.to_lowercase().contains("/reference/")).unwrap_or(&idxs[0]);
         let (url, body) = &pages[idx];
         let att = attested.contains(url);
-        let dp = read_doc_page(url, body, en, &bridge, &attested, &Default::default());
+        let construction_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let dp = read_doc_page(url, body, en, &bridge, &attested, &construction_map);
         let out = by_construct.get(*t);
         let cand = out.is_some();
         let verd = out.map(|o| format!("{:?}/{}", o.verdict, o.violating)).unwrap_or_else(|| "-".into());

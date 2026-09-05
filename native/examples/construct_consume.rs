@@ -103,7 +103,9 @@ fn main() {
     println!("removal-only subjects ({}): {}", names.len(), names.join(", "));
 
     // Run the REAL graduate WITH the constructions fed in (the shipped path).
-    let (outcomes, _read) = lint_module::graduate("python", &pages, &mem, m, en, &constructions);
+    let attested_urls: HashSet<String> =
+        pages.iter().filter(|(_, b)| attest.attests(b)).map(|(u, _)| u.clone()).collect();
+    let (outcomes, _, _, _, _) = lint_module::graduate("python", pages.clone(), &mem, m, en, &constructions, &attested_urls);
     let by_construct: HashMap<&str, &lint_module::Outcome> =
         outcomes.iter().map(|o| (o.candidate.construct.as_str(), o)).collect();
 
@@ -143,7 +145,7 @@ fn main() {
 
     // REGRESSION: graduate with EMPTY constructions (the pre-consumer path) must produce the SAME rules
     // for every NON-removal-only subject — the consumer is purely additive, never perturbs the frozen set.
-    let (base, _base_read) = lint_module::graduate("python", &pages, &mem, m, en, &[]);
+    let (base, _, _, _, _) = lint_module::graduate("python", pages.clone(), &mem, m, en, &[], &attested_urls);
     let base_rules: HashMap<String, (String, String, String)> = base
         .iter()
         .filter_map(|o| o.rule.as_ref().map(|(r, _)| (r.id.clone(), (r.bad.clone(), r.good.clone(), r.description.clone()))))
