@@ -34,6 +34,7 @@ checks=(
 	"node --check ./scripts/patch-vscode-runsubagent-model.js"
 	"node ./scripts/build-pages-search-site.js"
 	"node ./scripts/test-project-index.js"
+	"node ./scripts/test-mcp-tools.js"
 	"bash ./scripts/build-dist.sh"
 )
 
