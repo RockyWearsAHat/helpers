@@ -21,6 +21,8 @@ use helpers_native::mcp;
 use helpers_native::proto::{emit_content, emit_error};
 use helpers_native::registry;
 
+mod doctor;
+
 /// Strip a trailing `.exe` suffix (case-insensitive) from a string.
 /// Used to normalize argv[0] on Windows where the binary name includes .exe.
 fn strip_exe(s: &str) -> String {
@@ -156,6 +158,7 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("doctor") => doctor::run(),
         Some("mcp") => mcp::run(),
         Some("call") => run_call(argv.get(1).map(String::as_str)),
         Some("bundle") => run_bundle(argv.get(1), argv.get(2)),
