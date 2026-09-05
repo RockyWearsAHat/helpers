@@ -56,6 +56,8 @@ pub const SKIP_DIRS: &[&str] = &[
     ".git",
     ".helpers",
     ".claude",
+    ".doc",
+    ".engine",
     // dependency trees (JS / Python / general)
     "node_modules",
     "vendor",
