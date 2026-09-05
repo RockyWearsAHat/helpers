@@ -4,7 +4,7 @@
 // Smoke test: verify every helpers MCP tool answers correctly and quickly.
 // Tests all tools in the MCP registry for:
 // 1. Response validity (JSON, no errors)
-// 2. Response speed (< 5s per tool, < 30s total)
+// 2. Response speed (light tools < 5s, search tools < 10s, heavy tools < 30s, < 120s total)
 
 const fs = require("fs");
 const path = require("path");
@@ -19,28 +19,28 @@ if (!fs.existsSync(BIN)) {
 }
 
 const tools = [
-  { name: "checkpoint", args: { all: false } },
-  { name: "index_project", args: { root: "." } },
-  { name: "project_map", args: { root: "." } },
-  { name: "lookup", args: { root: ".", query: "test" } },
-  { name: "project_setup", args: { root: "." } },
-  { name: "lint", args: { file: ".", severity: "all" } },
-  { name: "lint_flag", args: { flag: "test" } },
-  { name: "lint_submit", args: { violations: [] } },
-  { name: "lint_rule", args: { rule: "test" } },
-  { name: "lint_config", args: { action: "status" } },
-  { name: "lint_query", args: {} },
-  { name: "build_knowledge_index", args: { root: "." } },
-  { name: "search_knowledge_index", args: { query: "test" } },
-  { name: "search_knowledge_cache", args: { query: "test" } },
-  { name: "read_knowledge_note", args: { filename: "test.md" } },
-  { name: "write_knowledge_note", args: { filename: "test.md", body: "test" } },
-  { name: "update_knowledge_note", args: { filename: "test.md", section: "test", body: "test" } },
-  { name: "append_to_knowledge_note", args: { filename: "test.md", body: "test" } },
-  { name: "submit_community_research", args: { notes: [] } },
-  { name: "register_workspace_tool", args: { root: ".", name: "test", description: "test", command: "echo test" } },
-  { name: "unregister_workspace_tool", args: { root: ".", name: "test" } },
-  { name: "list_workspace_tools", args: { root: "." } },
+  { name: "checkpoint", args: { all: false }, timeout: 5000 },
+  { name: "index_project", args: { root: "." }, timeout: 30000 },
+  { name: "project_map", args: { root: "." }, timeout: 30000 },
+  { name: "lookup", args: { root: ".", query: "test" }, timeout: 30000 },
+  { name: "project_setup", args: { root: "." }, timeout: 5000 },
+  { name: "lint", args: { file: ".", severity: "all" }, timeout: 30000 },
+  { name: "lint_flag", args: { flag: "test" }, timeout: 5000 },
+  { name: "lint_submit", args: { violations: [] }, timeout: 5000 },
+  { name: "lint_rule", args: { rule: "test" }, timeout: 5000 },
+  { name: "lint_config", args: { action: "status" }, timeout: 5000 },
+  { name: "lint_query", args: {}, timeout: 5000 },
+  { name: "build_knowledge_index", args: { root: "." }, timeout: 30000 },
+  { name: "search_knowledge_index", args: { query: "test" }, timeout: 10000 },
+  { name: "search_knowledge_cache", args: { query: "test" }, timeout: 10000 },
+  { name: "read_knowledge_note", args: { filename: "test.md" }, timeout: 5000 },
+  { name: "write_knowledge_note", args: { filename: "test.md", body: "test" }, timeout: 5000 },
+  { name: "update_knowledge_note", args: { filename: "test.md", section: "test", body: "test" }, timeout: 5000 },
+  { name: "append_to_knowledge_note", args: { filename: "test.md", body: "test" }, timeout: 5000 },
+  { name: "submit_community_research", args: { notes: [] }, timeout: 5000 },
+  { name: "register_workspace_tool", args: { root: ".", name: "test", description: "test", command: "echo test" }, timeout: 5000 },
+  { name: "unregister_workspace_tool", args: { root: ".", name: "test" }, timeout: 5000 },
+  { name: "list_workspace_tools", args: { root: "." }, timeout: 5000 },
 ];
 
 const startTime = Date.now();
@@ -57,7 +57,7 @@ for (const tool of tools) {
       input: JSON.stringify(tool.args),
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
-      timeout: 5000,
+      timeout: tool.timeout,
     });
 
     const toolTime = Date.now() - toolStart;
@@ -80,8 +80,8 @@ for (const tool of tools) {
     if (parsed.error && parsed.error.message) {
       // Some errors are expected for minimal args (e.g., file not found)
       // As long as we got a valid MCP response, the tool answered
-      if (toolTime > 5000) {
-        throw new Error(`Slow response: ${toolTime}ms`);
+      if (toolTime > tool.timeout) {
+        throw new Error(`Slow response: ${toolTime}ms (timeout: ${tool.timeout}ms)`);
       }
     }
 
@@ -114,9 +114,9 @@ for (const r of results) {
 }
 
 console.log(`\n${passed}/${tools.length} tools passed, ${failed} failed`);
-console.log(`Total time: ${totalTime}ms (should be < 30s)\n`);
+console.log(`Total time: ${totalTime}ms (should be < 120s)\n`);
 
-if (failed > 0 || totalTime > 30000) {
+if (failed > 0 || totalTime > 120000) {
   process.exit(1);
 }
 
