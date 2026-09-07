@@ -4,3 +4,8 @@
 {"landed":"source","path":"native/src/lint_selftest.rs","query":"## Understanding"}
 {"landed":"document","path":"index.dx","query":"Project: /\nYou are executing step 1 of 1 in the build plan.\n\nSTEP 1: Do the worklist item\nDetails: Do this item: You are scouting the project at D:\\SARA\\Desktop\\bin. Its worklist at D:\\SARA\\Desktop\\bi…"}
 {"landed":"source","path":"knowledge/testing-philosophy.md","query":"Run the full test suite and verify the project builds. Report any failures.\nIf all tests pass and the project is ready for production, respond with: VALIDATION_PASSED\nOtherwise, describe the failures …"}
+{"landed":"source","path":"knowledge/genai-agentic-coding.md","query":"capability gates decompose failing"}
+{"landed":"document","path":"index.dx","query":"cap-lib-tests cap-full-build cap-binary-runs cap-release-macos cap-release-windows cap-mcp-answers cap-helpers-doctor"}
+{"landed":"source","path":"knowledge/genai-agent-git-branch-isolation.md","query":"dispatch team team-general-0 already dispatched"}
+{"landed":"source","path":"fix_mcp_subitem.sh","query":"now-worklist item 12 failed dispatch"}
+{"landed":"source","path":"community-cache/candidates/2026-03-26/20260326T120008Z-zav7ixac-19b5305dba20.json","query":"item 12 decompose sub-items capability gates"}
