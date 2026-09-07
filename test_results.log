@@ -1,0 +1,14 @@
+
+> @rockywearsahat/helpers@0.5.2 test
+> node test/package-json.test.js
+
+TEST: package.json is valid JSON
+  ✓ package.json is valid JSON with required fields
+
+TEST: npm ls --depth=0 has no ERR! lines
+  ✓ npm ls --depth=0 returns valid dependency tree with no errors
+
+TEST: npm ls output matches expected format
+  ✓ npm ls contains properly formatted dependency lines
+
+✅ All tests passed

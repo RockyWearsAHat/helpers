@@ -1,2 +1,6 @@
 {"landed":"source","path":"native/src/hv_batch.rs","query":"Finished capability gates"}
 {"landed":"source","path":"knowledge/debugging-techniques.md","query":"Continue working on this step."}
+{"landed":"source","path":"native/src/lint_selftest.rs","query":"understanding"}
+{"landed":"source","path":"native/src/lint_selftest.rs","query":"## Understanding"}
+{"landed":"document","path":"index.dx","query":"Project: /\nYou are executing step 1 of 1 in the build plan.\n\nSTEP 1: Do the worklist item\nDetails: Do this item: You are scouting the project at D:\\SARA\\Desktop\\bin. Its worklist at D:\\SARA\\Desktop\\bi…"}
+{"landed":"source","path":"knowledge/testing-philosophy.md","query":"Run the full test suite and verify the project builds. Report any failures.\nIf all tests pass and the project is ready for production, respond with: VALIDATION_PASSED\nOtherwise, describe the failures …"}
