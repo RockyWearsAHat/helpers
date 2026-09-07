@@ -1,0 +1,28 @@
+SCOUT FINDINGS - D:\SARA\Desktop\bin (2026-09-07)
+
+PROJECT STATUS:
+- 7 Capability Gates total: 4 passing (cap-binary-runs, cap-mcp-answers, cap-release-windows, cap-release-macos-skipped)
+- 3 Failing Gates: cap-lib-tests, cap-full-build, cap-helpers-doctor
+- 5 Suspect Gates need quality rewrite: cap-lib-tests, cap-full-build, cap-release-macos, cap-release-windows, cap-helpers-doctor
+
+RECOMMENDED WORKLIST ITEMS (to append to now-worklist block in index.dx):
+Add these 4 items in priority order:
+
+1. [scout] [ask: charter-bin] [cap: cap-lib-tests] Fix cap-lib-tests gate quality and configure Rust toolchain: Rewrite gate with `set -euo pipefail` at top; run `rustup default stable`; OUTCOME: cap-lib-tests gate exits 0 when library tests pass, exits 1 on failure
+
+2. [scout] [ask: charter-bin] [cap: cap-full-build] Fix MSVC build environment for release binary: Diagnose and resolve linker.exe failures in native/ build; verify Visual Studio build tools installed; OUTCOME: `cargo build --release --bins` completes successfully at native/target/release/helpers-native
+
+3. [scout] [ask: charter-bin] [cap: cap-helpers-doctor] Implement doctor subcommand and fix gate quality: Add `doctor` CLI subcommand in native/src/cli.rs reporting toolchain; rewrite gate with `set -euo pipefail`; OUTCOME: cap-helpers-doctor gate exits 0 when doctor reports found, exits 1 on missing toolchain
+
+4. [scout] [ask: charter-bin] [cap: cap-release-macos] Rewrite cap-release-macos gate to proper quality: Add `set -euo pipefail` at top; ensure gate exits 0 on success, 1 on failure, or ⊘ skipped only on non-macOS; OUTCOME: Gate follows proper bash error handling pattern without || suppression
+
+RATIONALE:
+- Gates 1-3 are failing and blocking project progress
+- Gate 4 is suspect (missing set -euo pipefail) and should be fixed for quality
+- These 4 items will move the project from 3/7 failing to potentially 7/7 passing
+- The existing 5 worklist items (cap-env-verify, cap-test-suite, cap-setup-doc, cap-dev-tools) remain for secondary setup/documentation work
+
+TECHNICAL NOTES:
+- index.dx schema v5 incompatibility prevented direct dx_append - manual merge needed
+- All gate definitions reviewed and categorized
+- Project has strong foundation: binary runs, MCP works, Windows release works
