@@ -9,3 +9,7 @@
 {"landed":"source","path":"knowledge/genai-agent-git-branch-isolation.md","query":"dispatch team team-general-0 already dispatched"}
 {"landed":"source","path":"fix_mcp_subitem.sh","query":"now-worklist item 12 failed dispatch"}
 {"landed":"source","path":"community-cache/candidates/2026-03-26/20260326T120008Z-zav7ixac-19b5305dba20.json","query":"item 12 decompose sub-items capability gates"}
+{"landed":"source","path":"DECOMPOSITION_ITEM_12.md","query":"now-worklist dispatch failed"}
+{"landed":"source","path":"ITEM_12_DECOMPOSITION.md","query":"cap-full-build cap-lib-tests unchecked item"}
+{"landed":"source","path":"ITEM_12_DECOMPOSITION.md","query":"now-worklist unchecked items cap-full-build"}
+{"landed":"source","path":"DECOMPOSITION_ITEM_12.md","query":"cap-env-verify fetch offline"}
