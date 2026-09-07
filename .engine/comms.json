@@ -1,23 +1,23 @@
 {
-  "updatedAt": "2026-09-07T03:47:48.5331792Z",
+  "updatedAt": "2026-09-07T04:43:33.1433884Z",
   "agents": [
     {
       "id": "lead",
       "role": "orchestrator",
       "status": "running",
-      "updatedAt": "2026-09-07T03:17:36.2810336Z"
+      "updatedAt": "2026-09-07T04:19:47.6892477Z"
     },
     {
       "id": "reviewer",
       "role": "reviewer",
       "status": "active",
-      "updatedAt": "2026-09-07T03:47:48.5331792Z"
+      "updatedAt": "2026-09-07T04:43:33.1433884Z"
     },
     {
       "id": "team-general-0",
-      "role": "builder",
-      "status": "active",
-      "updatedAt": "2026-09-07T03:47:46.4194967Z"
+      "role": "general",
+      "status": "failed",
+      "updatedAt": "2026-09-07T04:31:14.0023947Z"
     }
   ],
   "messages": null
