@@ -74,8 +74,7 @@ style preference. Whenever you touch code:
 
 Run `lint` after edits — it returns one prioritized CS2420/CS3500 violation list with
 `file:line` and a fix. Treat its output like compiler errors: clear it (or justify each
-remainder) before claiming done. `helpers grade` gives the rubric grade and gap-to-A+
-checklist; `lint` gives the exact lines. Followed to a T, these principles ~guarantee an A+.
+remainder) before claiming done. Followed to a T, these principles ~guarantee an A+.
 
 ## Research — direct Google, no SearXNG
 

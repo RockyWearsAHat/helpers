@@ -29,7 +29,6 @@ Load deeper tool details only when the current task requires them.
 
 - Run `lint` (with `root` = project path, optional `max`) after edits. It returns a prioritized CS2420/CS3500 violation list (file:line + fix) **plus** the official rules from Helpers' webscraped, always-current lint index — **no local toolchain** (clippy/ruff/eslint/staticcheck) required.
 - Success gate: clear the violations it lists (or explicitly justify any remainder) before reporting done; re-run to watch the count drop.
-- Pair with `helpers grade` for the rubric.
 
 ## Research Order
 
