@@ -1,15 +1,1315 @@
 {
-  "generatedAt": null,
+  "generatedAt": "2026-10-18T00:19:02Z",
   "totals": {
-    "candidateFiles": 0,
-    "clusters": 0,
+    "candidateFiles": 44,
+    "clusters": 43,
     "promoted": 0,
     "incubating": 0,
-    "watch": 0
+    "watch": 41
   },
   "promotedCandidates": [],
-  "watchCandidates": [],
+  "watchCandidates": [
+    {
+      "kind": "warning",
+      "topic": "workflow",
+      "statement": "If agents are allowed to routinely edit their own instruction, agent, skill, or hook files during unrelated implementation work, customization quality becomes self-referential and fragile. Protect the customization control surface with deterministic hooks or equivalent approval gates.",
+      "statementHash": "795cb5c070322045147b82cfc8d0e176d63ed8b47d2a06f5ed004b57e167becb",
+      "recommendationStrength": "required",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T00:00:00Z",
+      "lastSeenAt": "2026-03-23T00:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 61,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Agent hooks",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/hooks",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Customize AI responses (overview)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T000000Z-ctlsurface03"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "After every code edit, call read/problems (or get_errors) to check for compile errors, lint warnings, and diagnostics before moving on. The agent mode compile-check-fix loop is the core design principle: generate code, check diagnostics, fix errors, repeat until clean. Never reason past compiler errors; the compiler parsed the actual source tree.",
+      "statementHash": "523accd638560987696a4213994262ee9d3ddf50588c5c0b8246d275d9036fe4",
+      "recommendationStrength": "required",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "Introducing Copilot Agent Mode",
+          "url": "https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code Agent Tools Reference",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120000Z-os2awszh"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "Build Copilot customization progressively: start with a single instructions file containing only what you have already observed the model getting wrong. Add rules one at a time when you see repeated mistakes. Over-specifying up front creates context noise and dilutes the rules that actually matter. Quantified benchmarks show that well-scoped custom instructions improve code quality +37.6% and acceptance rate +113% (Copilot internal telemetry, 2025).",
+      "statementHash": "74069a53ac7dc18b701fe73f554159488775209d44b45d635dbf4fd0e8db4fb6",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:47:26Z",
+      "lastSeenAt": "2026-03-24T06:47:26Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "Custom instructions for GitHub Copilot — GitHub Docs",
+          "url": "https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Copilot custom instructions impact study (2025 internal telemetry)",
+          "url": "https://github.blog/changelog/2025-01-21-custom-instructions-for-github-copilot-in-vs-code-is-now-generally-available/",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064726Z-ji3q1r86"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "other",
+      "statement": "Context engineering is the design of the full information environment an LLM operates in — system prompts, retrieved documents, tool outputs, conversation history, memory, and structured data — not just a single prompt. Output quality rises with context up to a point then degrades (lost-in-the-middle effect and context rot). Provide the minimum context that fully specifies the task.",
+      "statementHash": "b516676168e706b6418c8389b8e9cf4d453ff4ea8289fae5a8ff4fea929bf5ae",
+      "recommendationStrength": "recommended",
+      "applicability": "general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:47:09Z",
+      "lastSeenAt": "2026-03-24T06:47:09Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "Lost in the Middle: How Language Models Use Long Contexts — Liu et al.",
+          "url": "https://arxiv.org/abs/2307.03172",
+          "sourceType": "other"
+        },
+        {
+          "title": "Context Engineering Bootcamp — AI Hippocampus",
+          "url": "https://www.youtube.com/watch?v=xlUIiTSaFKI",
+          "sourceType": "public-video"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064709Z-dcu1af0z"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "Decompose complex tasks into small, atomic, verifiable sub-tasks using a todo list or feature checklist. Mark each item in-progress before starting, complete the work, verify it (check diagnostics, run tests), then mark completed before moving to the next. One task at a time, verified before proceeding.",
+      "statementHash": "19b5305dba20e62857ae2f7097595327a62cf4c58654802ccaf118073526452e",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "Effective Harnesses for Long-Running Agents",
+          "url": "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "Building Effective Agents",
+          "url": "https://www.anthropic.com/research/building-effective-agents",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120008Z-zav7ixac"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "tooling",
+      "statement": "Do not teach Copilot customization workflows to rely on undocumented or unsupported built-in tool names. If guidance mentions a tool that is not in the current documented tool set, replace it with a supported tool path or a terminal fallback.",
+      "statementHash": "60bfe86c37f006afa68242bb2297d8b67ecc93b67fff8ef7769828394b4a23b7",
+      "recommendationStrength": "required",
+      "applicability": "tool-use",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T21:28:13Z",
+      "lastSeenAt": "2026-03-23T21:28:13Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "VS Code - Agent tools",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code - Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T212813Z-d4kvx7ct"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "tooling",
+      "statement": "MCP tool schema descriptions are the primary signal an LLM uses to decide when and how to invoke a tool. Invest in clear, specific description strings — vague descriptions cause the model to skip the tool or pass wrong arguments. Include: what the tool does, when to use it vs alternatives, required vs optional params, and one concrete example in the description.",
+      "statementHash": "52f2ac69ca70f4aacdbca060e036c0ac0a4696e838ebcebe71f211bab17b6693",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:47:35Z",
+      "lastSeenAt": "2026-03-24T06:47:35Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "Anthropic — Building effective agents (tool design guidance)",
+          "url": "https://docs.anthropic.com/en/docs/build-with-claude/tool-use/best-practices",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "Model Context Protocol specification — Tool definition",
+          "url": "https://spec.modelcontextprotocol.io/specification/2025-03-26/server/tools/",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064735Z-ui3brnjm"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "tooling",
+      "statement": "Never use heredocs, long inline interpreter scripts (node -e, python -c, bash -c with multi-line bodies), or shell redirection file writes (>, >>, | tee) in agent terminal commands. These patterns cause parsing failures in VS Code's terminal integration, trigger automatic retry loops under higher autonomy modes (5-10 wasted retries per failure), and bypass file-write detection guardrails. Use editor file-creation tools (create_file / editFiles) for multi-line content, and run created files with short terminal commands.",
+      "statementHash": "2e636de8b213e678355d0ddfb3496a02b04a2a919ea0b0248a7f850d853f1233",
+      "recommendationStrength": "required",
+      "applicability": "tool-use",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-27T21:11:00Z",
+      "lastSeenAt": "2026-03-27T21:11:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 59,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Agent Mode documentation — terminal tool limitations and auto-approval",
+          "url": "https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code custom instructions documentation",
+          "url": "https://code.visualstudio.com/docs/copilot/copilot-customization",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "2026-03-27-shell-heredoc-agent-antipattern"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "In large native C++ repositories, keep always-on instructions short and move language, framework, and subsystem rules into scoped .instructions.md files plus skills so high-signal native guidance appears only when relevant.",
+      "statementHash": "5dade6af6344f2222dff01043f459a296a8c602ae8e9842f2e9321a0c0a1bea2",
+      "recommendationStrength": "required",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T00:00:00Z",
+      "lastSeenAt": "2026-03-23T00:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 58,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Customize AI responses (overview)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T000000Z-layered01"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "LLM-guided self-debugging follows exponential decay — each successive attempt at the same bug is less likely to succeed. If 2-3 fix attempts fail, reset context entirely and try a completely different approach rather than letting the agent keep looping with minor variations.",
+      "statementHash": "c4143873960977589754be7946300048f9728e002f59e589912e0463e011c8be",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:46:26Z",
+      "lastSeenAt": "2026-03-24T06:46:26Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 56,
+      "evidenceRefs": [
+        {
+          "title": "Measuring and mitigating debugging effectiveness decay in code — Nature (2025)",
+          "url": "https://www.nature.com/articles/s41586-025-08693-4",
+          "sourceType": "other"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064626Z-d26t4ziz"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "workflow",
+      "statement": "Teams with high AI coding adoption merged 98% more PRs but review times increased 91% and PR size increased 154% (DORA 2025). The bottleneck shifts from writing code to reviewing it. Measure success by verified shipped features, not code volume. Automate verification aggressively to prevent the review bottleneck.",
+      "statementHash": "b48ef641e860683cc15f3702987870e28b08ccd12b45237c98f3af25409af542",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:47:01Z",
+      "lastSeenAt": "2026-03-24T06:47:01Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 56,
+      "evidenceRefs": [
+        {
+          "title": "DORA Report 2025 — AI Impact on Software Delivery",
+          "url": "https://dora.dev/research/",
+          "sourceType": "other"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064701Z-taffycbd"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "tooling",
+      "statement": "The tools field in agent frontmatter uses a category/tool format (e.g., read/readFile, search/textSearch, web/fetch, edit/editFiles, execute/runInTerminal). A bare category name enables all tools in that category. Bare tool names without a category prefix (e.g., 'readFile' or 'fetch') are silently ignored and grant no tool access.",
+      "statementHash": "5eebe830d8869c8e015a1c1b1739f48875121e73ba3bd2d7dac1b73694be8057",
+      "recommendationStrength": "required",
+      "applicability": "tool-use",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T04:46:23Z",
+      "lastSeenAt": "2026-03-24T04:46:23Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 56,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent tools",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T044623Z-q7x8u286"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "tooling",
+      "statement": "Under VS Code's higher autonomy modes (Autopilot), failed terminal commands trigger automatic retry loops without user input. This means the cost of a bad terminal pattern (heredocs, complex shell constructs) is multiplicative, not linear — a single failure can consume 5-10 retries worth of context budget before the agent tries an alternative approach. Instructions that prohibit fragile terminal patterns prevent this amplification.",
+      "statementHash": "b3f9bc2087f1d34939835c2ac14b4f514991b6de7589eb8535a80836551170e3",
+      "recommendationStrength": "required",
+      "applicability": "tool-use",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-27T21:11:00Z",
+      "lastSeenAt": "2026-03-27T21:11:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 56,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Agent Mode — autonomy levels and auto-approval",
+          "url": "https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "2026-03-27-agent-autoretry-amplification"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "agents",
+      "statement": "Agents with user-invocable: false that are not referenced in any reachable agent's agents: field are invisible dead code. VS Code builds the available-agents list by following the dependency chain from user-invocable roots. An agent file that exists on disk but is unreachable through the chain can never be invoked — by the user or by any other agent.",
+      "statementHash": "a9945504001d871bfe4fda95ad9838688c5239fa04bfc253d3ca6fbe10eded71",
+      "recommendationStrength": "required",
+      "applicability": "agent-design",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T04:45:58Z",
+      "lastSeenAt": "2026-03-24T04:45:58Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 55,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Subagents",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T044558Z-jxug71k4"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "instructions",
+      "statement": "Do not turn copilot-instructions.md into a mutable feature-status ledger or roadmap. Volatile implementation state belongs in human-facing docs or knowledge notes, while always-on instructions should stay stable, factual, and runtime-relevant.",
+      "statementHash": "4ee7371b0d187a0dd841fdc00b1ffd405a4ee79d1dfeea96686eae40e3044ea1",
+      "recommendationStrength": "required",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T00:00:00Z",
+      "lastSeenAt": "2026-03-23T00:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 55,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code — Customize AI responses (overview)",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/overview",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T000000Z-noledger02"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "Instruct agents to treat diagnostic output as ground truth. When the compiler or linter reports an error, fix it. Three rare exceptions: stale cache (clean and rebuild), missing dependency (install it), outdated language server (reload window). In all other cases, the diagnostic parsed the actual source tree and is correct.",
+      "statementHash": "5c4f1cf5f250d678751bdbc32618073b3e07dc3b95f973f7b2cefb0c3b3bffae",
+      "recommendationStrength": "required",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 55,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Diagnostics API",
+          "url": "https://code.visualstudio.com/api/references/vscode-api#DiagnosticCollection",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Introducing Copilot Agent Mode",
+          "url": "https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120040Z-9w0i2zfv"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "When a repository keeps durable language-specific guidance for coding agents, that guidance should be anchored in authoritative references and carry a visible freshness date. Use community anecdotes for pattern recognition only; do not let unsourced forum or blog advice become the primary basis for persistent instruction files.",
+      "statementHash": "a6a1bef1523c1568b71f89880cbd372a4549a8b5281fd8f8ea00a49a6c8a5012",
+      "recommendationStrength": "recommended",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T00:00:00Z",
+      "lastSeenAt": "2026-03-23T00:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 55,
+      "evidenceRefs": [
+        {
+          "title": "cppreference: Undefined behavior",
+          "url": "https://en.cppreference.com/w/cpp/language/ub",
+          "sourceType": "other"
+        },
+        {
+          "title": "C++ Core Guidelines",
+          "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+          "sourceType": "other"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "2026-03-23-cpp-guidance-authority"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "Instruction files for domain-specific technology must address design philosophy and architecture patterns to guide AI output quality — files consisting only of syntax rules duplicate static analysis tools and provide minimal judgment guidance.",
+      "statementHash": "eed263ff7b7400b17f51d9fff14a9e98448c04cdf916dd35e9e094b4d2f316a9",
+      "recommendationStrength": "recommended",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 2,
+      "submissionCount": 2,
+      "firstSeenAt": "2026-03-24T19:39:40Z",
+      "lastSeenAt": "2026-03-24T19:39:48Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 53,
+      "evidenceRefs": [
+        {
+          "title": "C++ Core Guidelines — P: Philosophy section covers judgment over mechanical rule-following",
+          "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+          "sourceType": "official-docs"
+        },
+        {
+          "title": "r/cpp Design Patterns thread (83 upvotes) — practitioners report patterns should emerge from repeated code, not be imposed prescriptively",
+          "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+          "sourceType": "community-thread"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T193940Z-krw95b8b",
+        "20260324T193948Z-xspqpy08"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "agents",
+      "statement": "The chat.agentFilesLocations VS Code setting is an object with path keys and boolean values (e.g., {'.github/agents': true}), not an array. Setting it to an array of strings silently breaks agent discovery with no error message. The default value already includes .github/agents, .claude/agents, ~/.claude/agents, and ~/.copilot/agents.",
+      "statementHash": "414f67c9f62b0b76a538720818ffada6fe94afc6ed07fc34f62317b9a76f62cd",
+      "recommendationStrength": "required",
+      "applicability": "agent-design",
+      "authoritativeSupport": "strong",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T04:46:15Z",
+      "lastSeenAt": "2026-03-24T04:46:15Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 53,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Custom agents",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T044615Z-kh2d6su7"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "workflow",
+      "statement": "AI-generated code that passes tests may still contain security vulnerabilities (45% rate per Veracode 2025) or performance anti-patterns invisible to functional testing. Run a three-minute triage after every AI code change: linter, type checker, existing tests. This catches roughly 60% of AI code failures before deeper review.",
+      "statementHash": "b5014789b691fac726ef0b63bde1f8618abd8f11af0911736159ea62df5ae7c2",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:46:34Z",
+      "lastSeenAt": "2026-03-24T06:46:34Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "Agentic AI Coding: Best Practice Patterns — CodeScene (Feb 2026)",
+          "url": "https://codescene.com/blog/agentic-ai-coding-best-practices",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "Veracode State of Software Security 2025",
+          "url": "https://www.veracode.com/state-of-software-security-report",
+          "sourceType": "other"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064634Z-julv7fdm"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "After editing .github/ customization files or .vscode/ configuration files, use read/problems to check for YAML frontmatter syntax errors, invalid JSON, incorrect tool names, and missing required fields. VS Code validates these files natively via built-in schema validation, so diagnostics catch configuration errors the same way they catch code errors.",
+      "statementHash": "6d8e3706b58c04ccf51992ffc919023f235fad323d5215c62d13c19e66d11eb5",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "Introducing Copilot Agent Mode",
+          "url": "https://code.visualstudio.com/blogs/2025/02/24/introducing-copilot-agent-mode",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "VS Code JSON Schema Validation",
+          "url": "https://code.visualstudio.com/docs/languages/json",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120056Z-uc4k50bd"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "tooling",
+      "statement": "Agents with terminal execution and file creation can build their own tools mid-session: custom MCP servers, shell scripts, or VS Code extensions. When a task requires capabilities beyond built-in tools, consider building a purpose-specific tool rather than working around the limitation.",
+      "statementHash": "217583a4e3623308f31029fe7344ef8045ab77c028ecc20c190eda60c5a15d59",
+      "recommendationStrength": "optional",
+      "applicability": "tool-use",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Agent Tools Reference",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "MCP Integration in VS Code",
+          "url": "https://code.visualstudio.com/docs/copilot/chat/mcp-servers",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120024Z-glg9fl28"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "Before acting on knowledge that may be outdated (API signatures, framework versions, library behavior, CLI flags), use web/fetch or search_web to verify against current documentation. Training data has a cutoff — volatile details change faster than model training cycles.",
+      "statementHash": "794edf1bebf657ab7ad80ffe2f8616fa5b55320005bcfbaf6c1a963a14e1f967",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Copilot Features Reference",
+          "url": "https://code.visualstudio.com/docs/copilot/reference/copilot-vscode-features",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Building Effective Agents",
+          "url": "https://www.anthropic.com/research/building-effective-agents",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120016Z-1v8988q8"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "other",
+      "statement": "Persist compound learning across agent iterations through four channels: git commit history (semantic change log), progress log (chronological task outcomes), structured task state (status, criteria, pass/fail), and a knowledge file (patterns, gotchas, recent learnings). Each improvement makes future improvements easier because the knowledge base grows.",
+      "statementHash": "59704ed64e8a938b2378fe16ad170617323b14f3de78bd88c42b563eab879163",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:47:17Z",
+      "lastSeenAt": "2026-03-24T06:47:17Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "Self-Improving Coding Agents — Addy Osmani (Jan 2026)",
+          "url": "https://addyosmani.com/blog/self-improving-coding-agents/",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "Building an agentic memory system for GitHub Copilot — GitHub Blog (Jan 2026)",
+          "url": "https://github.blog/engineering/platform-security/building-an-agentic-memory-system-for-github-copilot/",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064717Z-lxovpwez"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "Reset agent context between iterations of a multi-task loop. A fresh, bounded prompt per task prevents context overflow, reduces hallucinations, and keeps the agent focused. Stateless-but-iterative design (pick task, implement, validate, commit, reset) is the foundation of reliable autonomous agent work.",
+      "statementHash": "6ed9313840f947e37df813e60b7b1d79b3621745236147fdb18bb99ee186641c",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:46:16Z",
+      "lastSeenAt": "2026-03-24T06:46:16Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "Self-Improving Coding Agents — Addy Osmani (Jan 2026)",
+          "url": "https://addyosmani.com/blog/self-improving-coding-agents/",
+          "sourceType": "product-guidance"
+        },
+        {
+          "title": "Cursor team guidance on periodic fresh starts",
+          "url": "https://www.cursor.com/blog",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064616Z-9gwp7kp1"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "skills",
+      "statement": "Specifications, design briefs, and structured inputs for AI work must use concrete values (exact colors, pixel dimensions, specific component names, precise acceptance criteria) rather than aspirational language. Models interpret vague aesthetic language inconsistently; concrete values produce reproducible output.",
+      "statementHash": "6043adf4e2d5ca1110a185b19a41a5441d7f98a51046002a05fd9ea3c2cde2c7",
+      "recommendationStrength": "recommended",
+      "applicability": "general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:19:02Z",
+      "lastSeenAt": "2026-03-23T22:19:02Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "VS Code - Copilot Best Practices",
+          "url": "https://code.visualstudio.com/docs/copilot/copilot-best-practices",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "niittymaa/Copilot-Ralph ralph-planner.agent.md",
+          "url": "https://github.com/niittymaa/Copilot-Ralph",
+          "sourceType": "public-example"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221902Z-ilvu9fck"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "instructions",
+      "statement": "When multiple customization files define incompatible output formats for the same task (different scoring rubrics, conflicting template structures, contradictory field definitions), the model picks whichever definition it reads last, producing inconsistent outputs across runs. Keep authoritative format definitions in a single source and reference it from other files rather than redefining.",
+      "statementHash": "4ec967a72620de05536ddbec633dadbf916ca5923f87901218e433c88d169116",
+      "recommendationStrength": "required",
+      "applicability": "general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:18:53Z",
+      "lastSeenAt": "2026-03-23T22:18:53Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "VS Code - Custom instructions",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/custom-instructions",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Burke Holland - Ultimate Agent Mode Tutorial",
+          "url": "https://www.youtube.com/watch?v=pKzETWV_EHE",
+          "sourceType": "public-video"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221853Z-u7chhftv"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "When working with visual output (web pages, charts, UI components), use browser/screenshot or take_screenshot tools to verify the rendered result rather than assuming correctness from code alone. Code that compiles and passes lint may still render incorrectly.",
+      "statementHash": "8395b970449e6dc4baa0bebe140597133fdcb3d192dc3b0ec8c30bd336ae48ef",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 47,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Agent Tools — Browser Tools",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Harness Design for Long-Running Apps",
+          "url": "https://www.anthropic.com/engineering/harness-design-long-running-apps",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120032Z-mlfbp4b6"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "Instruction files covering C++ development are more effective when they treat testability as a design principle — code that is hard to test signals structural issues (hidden dependencies, side effects, mixed concerns) requiring design changes, not more complex test infrastructure.",
+      "statementHash": "a0d2d23dd13db734e0b669c0968b6bf47471a3179f3282521111bd3879f7e70d",
+      "recommendationStrength": "recommended",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T19:40:14Z",
+      "lastSeenAt": "2026-03-24T19:40:14Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 46,
+      "evidenceRefs": [
+        {
+          "title": "C++ Core Guidelines — C.2: Use class if the class has an invariant; T.61: Do not over-parameterize",
+          "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+          "sourceType": "official-docs"
+        },
+        {
+          "title": "r/cpp Software Architecture thread — darthcoder: good test cases make large structural refactors safe",
+          "url": "https://www.reddit.com/r/cpp/comments/15awwlz/",
+          "sourceType": "community-thread"
+        },
+        {
+          "title": "r/cpp Design Patterns thread — eyepatchOwl: if hard to test, make it easier to test (design principle, not testing infrastructure problem)",
+          "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+          "sourceType": "community-thread"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T194014Z-wircis0v"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "Instruction files for performance-critical C++ subsystems should explicitly address Data Oriented Design tradeoffs — for hot-path code with large data sets, structures of arrays and free functions routinely outperform class hierarchies in cache efficiency and inlinability.",
+      "statementHash": "ca0fd296e8892ba3df04c045c6b0fe856ae4edfbc3dbc6f4d2287ed99f50b150",
+      "recommendationStrength": "recommended",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T19:39:56Z",
+      "lastSeenAt": "2026-03-24T19:39:56Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 46,
+      "evidenceRefs": [
+        {
+          "title": "C++ Core Guidelines — Per.4: Do not assume complicated code is better than simple code",
+          "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#per4-do-not-assume-that-complicated-code-is-necessarily-better-than-simple-code",
+          "sourceType": "official-docs"
+        },
+        {
+          "title": "r/cpp Software Architecture and Design thread (88 upvotes) — jmacey recommends DOD for high speed/throughput code alongside SOLID",
+          "url": "https://www.reddit.com/r/cpp/comments/15awwlz/",
+          "sourceType": "community-thread"
+        },
+        {
+          "title": "r/cpp Design Patterns thread — TheTomato2 notes structs and free functions often beat OOP for data-heavy and simulation code",
+          "url": "https://www.reddit.com/r/cpp/comments/uu3vn4/c_design_patterns_and_architecture_for_building/",
+          "sourceType": "community-thread"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T193956Z-3ysd1e7c"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "Separate aesthetic intent (design philosophy, visual mood, brand tone) from technical implementation constraints (legal hex values, allowed border radii, font size scale) in design-related instructions. When aesthetic language and technical rules are mixed in the same block, the model may interpret the aesthetic language as license to deviate from the hard technical constraints.",
+      "statementHash": "5dc27516c3094b1f3e856fc3bd5ae9a6c0f1cf910448ddb368cc6355c214c6c2",
+      "recommendationStrength": "recommended",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:19:10Z",
+      "lastSeenAt": "2026-03-23T22:19:10Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 46,
+      "evidenceRefs": [
+        {
+          "title": "awesome-copilot premium-frontend-ui SKILL.md",
+          "url": "https://github.com/github/awesome-copilot",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "breadboard-ai/breadboard ui-skill.md",
+          "url": "https://github.com/nicholasgriffintn/breadboard-ai",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "nishnet2002/iGlasses Angela.agent.md",
+          "url": "https://github.com/nishnet2002/iGlasses",
+          "sourceType": "public-example"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221910Z-km7v4w43"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "skills",
+      "statement": "Verification workflows that score or judge output must include a structured fix-feedback step that translates failures into specific actionable changes (file, selector/location, property, current value, target value). Without this step, audits diagnose problems but do not produce fixes, breaking the closed loop.",
+      "statementHash": "cf0192c8b815da433a69b02dd81560a9bbcdf258192d339ddb6acca0826cb29b",
+      "recommendationStrength": "recommended",
+      "applicability": "skill-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:18:28Z",
+      "lastSeenAt": "2026-03-23T22:18:28Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 46,
+      "evidenceRefs": [
+        {
+          "title": "awesome-copilot web-design-reviewer SKILL.md",
+          "url": "https://github.com/github/awesome-copilot",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "vm0-ai/vm0 ui-innovate skill.md",
+          "url": "https://github.com/nicholasgriffintn/vm0-ai",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "Burke Holland - Complete Guide to Agent Skills",
+          "url": "https://www.youtube.com/watch?v=lM30gPPcfPM",
+          "sourceType": "public-video"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221828Z-htlrbrbu"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "instructions",
+      "statement": "When instructions define a constrained set of legal values (design tokens, API versions, allowed dependencies), enumerate all legal values directly in the instruction file as hard constraints rather than referencing an external file. Models follow explicit inline value lists more reliably than indirect references, which require an extra file read that may be skipped or fail to load.",
+      "statementHash": "b3228264eccff2f59c0c9e31b71146b9e3981482e52ce35f72e91fe099cc3e88",
+      "recommendationStrength": "recommended",
+      "applicability": "instruction-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:18:19Z",
+      "lastSeenAt": "2026-03-23T22:18:19Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 46,
+      "evidenceRefs": [
+        {
+          "title": "awesome-copilot premium-frontend-ui SKILL.md",
+          "url": "https://github.com/github/awesome-copilot",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "breadboard-ai/breadboard ui-skill.md",
+          "url": "https://github.com/nicholasgriffintn/breadboard-ai",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "paperclipai/paperclip design-guide SKILL.md",
+          "url": "https://github.com/paperclipai/paperclip",
+          "sourceType": "public-example"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221819Z-jw0xie3v"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "workflow",
+      "statement": "An agent facing a failing test may delete the test rather than fix the underlying code. This weakens behavioral safeguards without visible signals. Protect against this with coverage gates that flag test removal, code review that specifically checks for deleted tests, and explicit rules forbidding test deletion to pass builds.",
+      "statementHash": "128720a73e02af330a0bc81f709d5c0dda5085f70cd4aa07ddef441c61048da2",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:46:43Z",
+      "lastSeenAt": "2026-03-24T06:46:43Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 44,
+      "evidenceRefs": [
+        {
+          "title": "The 80% Problem in Agentic Coding — Addy Osmani (Jan 2026)",
+          "url": "https://addyosmani.com/blog/the-80-percent-problem/",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064643Z-7hqmoo2w"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "skills",
+      "statement": "An empty or skeleton skill file (SKILL.md with placeholder headings but no substantive instructions) is worse than having no skill at all. It wastes a tool call when the model loads it, then forces improvisation since no methodology is provided. Either fill a skill with complete step-by-step instructions and templates, or delete it entirely.",
+      "statementHash": "f6760adf15677e1be2ab1e258cef3efdbd42a56bc15dfbbc1a3eb76c9c013aec",
+      "recommendationStrength": "recommended",
+      "applicability": "skill-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:18:36Z",
+      "lastSeenAt": "2026-03-23T22:18:36Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 44,
+      "evidenceRefs": [
+        {
+          "title": "VS Code - Copilot extensibility overview",
+          "url": "https://code.visualstudio.com/docs/copilot/copilot-extensibility-overview",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Burke Holland - Complete Guide to Agent Skills",
+          "url": "https://www.youtube.com/watch?v=lM30gPPcfPM",
+          "sourceType": "public-video"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221836Z-3our4lpb"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "workflow",
+      "statement": "Spend 70% of effort on problem definition and verification strategy, 30% on execution. Define acceptance criteria and write tests first; let the agent iterate until they pass. Specifying the destination clearly lets agents navigate there even through many failed attempts.",
+      "statementHash": "f62ee8d786d1bec0dfdc493ea8bd38a9955632d3d63d3bd6664bb46de236da2f",
+      "recommendationStrength": "recommended",
+      "applicability": "workflow-general",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 0,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T06:46:53Z",
+      "lastSeenAt": "2026-03-24T06:46:53Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 44,
+      "evidenceRefs": [
+        {
+          "title": "The 80% Problem in Agentic Coding — Addy Osmani (Jan 2026)",
+          "url": "https://addyosmani.com/blog/the-80-percent-problem/",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T064653Z-hget0q5q"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "agents",
+      "statement": "Use subagent delegation for independent, well-scoped tasks that do not require sharing state with the parent. Good targets: research, file exploration, test execution, documentation. Poor targets: tasks requiring iterative user feedback or complex parent context dependency.",
+      "statementHash": "31792ace6a999b78ecd6f87795abd6a1531411c4b4d89206ea37c4c4a3de7431",
+      "recommendationStrength": "recommended",
+      "applicability": "agent-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-26T12:00:00Z",
+      "lastSeenAt": "2026-03-26T12:00:00Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 44,
+      "evidenceRefs": [
+        {
+          "title": "VS Code Agent Tools Reference",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        },
+        {
+          "title": "Building Effective Agents",
+          "url": "https://www.anthropic.com/research/building-effective-agents",
+          "sourceType": "product-guidance"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260326T120048Z-84ym68vg"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "principle",
+      "topic": "skills",
+      "statement": "When using scoring rubrics in AI-assisted audit or verification workflows, each score category must map to specific actionable fix instructions: which files to check, which properties to change, and what target values to use. Scores without fix mappings produce diagnostic numbers but not improvements.",
+      "statementHash": "e0857834a317927a03b65b694b2f64e9f5baf53ff7d37d317d4967d5893fe80d",
+      "recommendationStrength": "recommended",
+      "applicability": "skill-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-23T22:18:44Z",
+      "lastSeenAt": "2026-03-23T22:18:44Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 44,
+      "evidenceRefs": [
+        {
+          "title": "awesome-copilot web-design-reviewer SKILL.md",
+          "url": "https://github.com/github/awesome-copilot",
+          "sourceType": "public-example"
+        },
+        {
+          "title": "vm0-ai/vm0 ui-innovate skill.md",
+          "url": "https://github.com/nicholasgriffintn/vm0-ai",
+          "sourceType": "public-example"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260323T221844Z-hcol1zy0"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "tooling",
+      "statement": "githubRepo is not a built-in VS Code Copilot tool. Referencing it in agent frontmatter tools lists is silently ignored. To access GitHub repository content, use the web/fetch tool category with raw.githubusercontent.com URLs or the GitHub API.",
+      "statementHash": "a393aa4096a3c09244a84823107d36fae7ff0ea39747ef2c6f941503eae892a1",
+      "recommendationStrength": "recommended",
+      "applicability": "tool-use",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T04:46:32Z",
+      "lastSeenAt": "2026-03-24T04:46:32Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 44,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent tools",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/agent-tools",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T044632Z-685xsiq1"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "anti-pattern",
+      "topic": "skills",
+      "statement": "Do not embed current codebase state in skill files — phrases like 'what currently exists', file inventories, or implementation-specific examples become stale as soon as the code changes. Skills must contain only reusable methodology (decision rules, checklists, protocol steps). When live context is needed, instruct the agent to discover it through code reading or research at invocation time.",
+      "statementHash": "0c9395193c9f29059f863cf871aba511b1affb9cf52e8ce579c3b52dd7d5f94f",
+      "recommendationStrength": "recommended",
+      "applicability": "skill-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T04:45:49Z",
+      "lastSeenAt": "2026-03-24T04:45:49Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 41,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Agent skills",
+          "url": "https://code.visualstudio.com/docs/copilot/customization/agent-skills",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T044549Z-gdn66f7r"
+      ],
+      "status": "watch"
+    },
+    {
+      "kind": "warning",
+      "topic": "agents",
+      "statement": "VS Code disables runSubagent for subagents. A subagent cannot invoke another subagent — nested delegation is impossible. Design multi-level orchestration using flat dispatch from a single user-invocable coordinator, or use session memory for indirect coordination between agents.",
+      "statementHash": "3413b96e8df5a00979012edf32f1ef4793d760023de458f7d3f4ac3ef2a1d127",
+      "recommendationStrength": "required",
+      "applicability": "agent-design",
+      "authoritativeSupport": "medium",
+      "liveRevalidatedCount": 1,
+      "submissionCount": 1,
+      "firstSeenAt": "2026-03-24T04:46:07Z",
+      "lastSeenAt": "2026-03-24T04:46:07Z",
+      "durabilityDays": 0,
+      "contradictionCount": 0,
+      "promotionScore": 41,
+      "evidenceRefs": [
+        {
+          "title": "VS Code — Subagents",
+          "url": "https://code.visualstudio.com/docs/copilot/agents/subagents",
+          "sourceType": "official-doc"
+        }
+      ],
+      "sampleSubmissionIds": [
+        "20260324T044607Z-88is4c8e"
+      ],
+      "status": "watch"
+    }
+  ],
   "notes": [
-    "No candidate files were present."
+    "Promotion favors strong support, repeated recurrence, freshness, and low contradiction.",
+    "Only generalized Copilot guidance is eligible for promotion."
   ]
 }
